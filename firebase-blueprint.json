@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access and balance",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "role": { "type": "string", "enum": ["ADMIN", "AGENT", "CUSTOMER"] },
+        "balance": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "REJECTED"] },
+        "agentId": { "type": "string", "description": "For customers, the ID of their assigned agent" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "phone", "role", "balance", "status"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Deposit or Withdrawal request",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL"] },
+        "agentId": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "conversionRate": { "type": "number" },
+        "commissionRate": { "type": "number" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "transitionId": { "type": "string" },
+        "transitionFileUrl": { "type": "string" },
+        "method": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type", "agentId", "amount", "status", "timestamp"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Global config for rates and commissions",
+      "type": "object",
+      "properties": {
+        "usdToBdt": { "type": "number" },
+        "eurToBdt": { "type": "number" },
+        "commissionPercent": { "type": "number" },
+        "invoiceContactInfo": { "type": "string" },
+        "invoiceDisclaimer": { "type": "string" }
+      }
+    },
+    "Receiver": {
+      "title": "Receiver",
+      "description": "Recipient details registered under a customer",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "customerId": { "type": "string" }
+      },
+      "required": ["id", "name", "phone", "customerId"]
+    },
+    "Feedback": {
+      "title": "Feedback",
+      "description": "User bug reports and suggestions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "description": { "type": "string" },
+        "severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "type": { "type": "string", "enum": ["BUG", "SUGGESTION", "OTHER"] },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "status": { "type": "string", "enum": ["NEW", "IN_PROGRESS", "RESOLVED"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "email", "description", "severity", "type", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual user profiles"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Collection of all system transactions"
+    },
+    "/settings/global": {
+      "schema": "Settings",
+      "description": "Global system settings"
+    },
+    "/receivers/{receiverId}": {
+      "schema": "Receiver",
+      "description": "Collection of registered receivers"
+    },
+    "/feedback/{feedbackId}": {
+      "schema": "Feedback",
+      "description": "Collection of submitted feedback and bug reports"
+    }
+  }
+}

@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --radius-3xl: 2rem;
+  --radius-4xl: 2.5rem;
+}
+
+@media print {
+  /* Set page margins */
+  @page {
+    margin: 1.5cm;
+    size: auto;
+  }
+
+  /* Hide absolutely everything else */
+  body * {
+    visibility: hidden !important;
+    background-image: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Show only the target transaction receipt */
+  .print-receipt-section,
+  .print-receipt-section * {
+    visibility: visible !important;
+  }
+
+  /* Position receipt nicely for paper page */
+  .print-receipt-section {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 2.5rem !important;
+    box-shadow: none !important;
+    border: 2px solid #000000 !important;
+    border-radius: 0.75rem !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+  }
+
+  /* Force clean solid black text for extreme contrast on physical paper */
+  .print-receipt-section div,
+  .print-receipt-section p,
+  .print-receipt-section span,
+  .print-receipt-section h4,
+  .print-receipt-section h5,
+  .print-receipt-section h6,
+  .print-receipt-section td,
+  .print-receipt-section th {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: #000000 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Hide specific components that shouldn't render in paper (like scrollbars, close triggers) */
+  .no-print,
+  .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Make grid elements stretch layout cleanly for paper forms */
+  .grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 1.5rem !important;
+  }
+
+  /* Force print-only elements to render block */
+  .print-only {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Solid borders for dividers/receipt grids on physical outputs */
+  .print-border-solid {
+    border: 1px solid #000000 !important;
+  }
+
+  /* Custom thermal style dashed lines around items */
+  .print-divider {
+    border-top: 2px dashed #000000 !important;
+    margin: 1.5rem 0 !important;
+    width: 100% !important;
+    display: block !important;
+    height: 0 !important;
+  }
+
+  /* High contrast badge styling */
+  .print-badge {
+    border: 1px solid #000000 !important;
+    border-radius: 6px !important;
+    padding: 3px 10px !important;
+    font-weight: 800 !important;
+    text-transform: uppercase !important;
+    font-size: 10px !important;
+    background-color: #f8fafc !important;
+  }
+
+  /* Center the QR code code images */
+  .print-receipt-section img {
+    border: 2px solid #000000 !important;
+    display: block !important;
+    margin: 1rem auto !important;
+    max-width: 160px !important;
+    border-radius: 8px !important;
+  }
+
+  /* Brand receipt top banner specifically styled for printing */
+  .print-brand-header {
+    text-align: center !important;
+    border-bottom: 2px dashed #000000 !important;
+    padding-bottom: 1.5rem !important;
+    margin-bottom: 1.5rem !important;
+    display: block !important;
+  }
+
+  .print-brand-header h2 {
+    font-size: 26px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.05em !important;
+    text-transform: uppercase !important;
+    margin: 0 0 4px 0 !important;
+    color: #000000 !important;
+  }
+
+  .print-brand-header p {
+    font-size: 12px !important;
+    color: #555555 !important;
+    font-weight: 500 !important;
+    margin: 0 !important;
+  }
+
+  /* Brand Receipt footer message */
+  .print-brand-footer {
+    display: block !important;
+    text-align: center !important;
+    border-top: 2px dashed #000000 !important;
+    padding-top: 1.5rem !important;
+    margin-top: 2rem !important;
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.025em !important;
+  }
+}
+
+

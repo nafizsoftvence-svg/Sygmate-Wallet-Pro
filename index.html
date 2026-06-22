@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WalletPro | Multi-Role Finance System</title>
+    <script>
+      (function() {
+        try {
+          var originalFetch = window.fetch ? window.fetch.bind(window) : null;
+          var fetchVal = originalFetch;
+
+          function defineWithAccessor(obj, prop) {
+            try {
+              var desc = Object.getOwnPropertyDescriptor(obj, prop);
+              if (desc) {
+                Object.defineProperty(obj, prop, {
+                  configurable: true,
+                  enumerable: true,
+                  get: function() { return fetchVal; },
+                  set: function(v) { fetchVal = v; }
+                });
+                return true;
+              }
+            } catch (e) {}
+            return false;
+          }
+
+          var targets = [
+            Window.prototype,
+            window,
+            Object.getPrototypeOf(window),
+            typeof globalThis !== 'undefined' ? globalThis : null
+          ];
+
+          var defined = false;
+          for (var i = 0; i < targets.length; i++) {
+            if (targets[i]) {
+              if (defineWithAccessor(targets[i], 'fetch')) {
+                defined = true;
+              }
+            }
+          }
+
+          // Force define directly on window as a configurable getter/setter property
+          // even if no descriptor existed previously, to shadow any non-writable properties.
+          if (!defined) {
+            try {
+              Object.defineProperty(window, 'fetch', {
+                configurable: true,
+                enumerable: true,
+                get: function() { return fetchVal; },
+                set: function(v) { fetchVal = v; }
+              });
+            } catch (e) {
+              try {
+                window.fetch = fetchVal;
+              } catch (err) {}
+            }
+          }
+        } catch (globalErr) {
+          console.warn('Sandbox fetch override failed:', globalErr);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

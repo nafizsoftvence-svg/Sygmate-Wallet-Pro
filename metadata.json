@@ -1,0 +1,8 @@
+{
+  "name": "WalletPro - Multi-Role Finance System",
+  "description": "A comprehensive wallet management system featuring Admin, Agent, and Customer dashboards with secure transaction tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
