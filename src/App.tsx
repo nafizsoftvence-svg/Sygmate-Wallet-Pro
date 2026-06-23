@@ -55,11 +55,10 @@ import {
   Scan,
   ShieldAlert,
   CheckCircle2,
-  Cpu
+  Cpu,
+  Percent
 } from 'lucide-react';
 import WalletPluginWidget from './components/WalletPluginWidget';
-import AstViewer from './components/AstViewer';
-import BiometricAuthenticator from './components/BiometricAuthenticator';
 import QRCode from 'qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -123,6 +122,9 @@ interface UserProfile {
   email?: string;
   documentNo?: string;
   photoURL?: string;
+  businessAddress?: string;
+  pushAlerts?: boolean;
+  emailAlerts?: boolean;
 }
 
 interface Receiver {
@@ -180,6 +182,7 @@ interface Transaction {
   receiverBankHolderName?: string;
   receiverBankAccountNumber?: string;
   receiverAccountName?: string;
+  rejectionReason?: string;
 }
 
 interface SystemSettings {
@@ -254,10 +257,11 @@ export const writeSystemLog = async (
       existing.unshift(newLog);
       localStorage.setItem('sandbox_system_logs', JSON.stringify(existing.slice(0, 150)));
     } else {
-      await addDoc(collection(db, 'system_logs'), logData);
+      const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 10)}${Math.random().toString(36).substring(2, 10)}`;
+      await setDoc(doc(db, 'system_logs', logId), logData);
     }
   } catch (err) {
-    console.error("Failed to write system log:", err);
+    console.warn("System log write warning:", err);
   }
 };
 
@@ -494,7 +498,6 @@ export default function App() {
 
   // User profile customization and camera states
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [isAstViewerActive, setIsAstViewerActive] = useState(false);
   
   // Feedback states
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -568,6 +571,8 @@ export default function App() {
   const [tempName, setTempName] = useState('');
   const [tempPhone, setTempPhone] = useState('');
   const [tempPhotoURL, setTempPhotoURL] = useState('');
+  const [tempPushAlerts, setTempPushAlerts] = useState<boolean>(true);
+  const [tempEmailAlerts, setTempEmailAlerts] = useState<boolean>(true);
   const [cameraActive, setCameraActive] = useState(false);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [cameraError, setCameraError] = useState('');
@@ -590,7 +595,16 @@ export default function App() {
       const savedProfile = localStorage.getItem('sandbox_current_profile');
       if (savedUser && savedProfile) {
         setUser(JSON.parse(savedUser));
-        setProfile(JSON.parse(savedProfile));
+        try {
+          const parsed = JSON.parse(savedProfile);
+          const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
+          const latest = localUsers.find(u => u.uid === parsed.uid) || parsed;
+          setProfile(latest);
+          // Sync changes back to active profile storage
+          localStorage.setItem('sandbox_current_profile', JSON.stringify(latest));
+        } catch {
+          setProfile(JSON.parse(savedProfile));
+        }
       }
       setLoading(false);
       return;
@@ -623,7 +637,7 @@ export default function App() {
         unsubscribeProfile = onSnapshot(doc(db, 'users', u.uid), (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data() as UserProfile;
-            if (data.status === 'PENDING') {
+            if (data.status === 'PENDING' && data.role !== 'AGENT') {
               updateDoc(doc(db, 'users', u.uid), { status: 'ACTIVE' }).catch(err => {
                 console.error("Auto-activation error:", err);
               });
@@ -750,6 +764,8 @@ export default function App() {
     setTempName(profile.name || '');
     setTempPhone(profile.phone || '');
     setTempPhotoURL(profile.photoURL || '');
+    setTempPushAlerts(profile.pushAlerts !== false);
+    setTempEmailAlerts(profile.emailAlerts !== false);
     setCameraError('');
     setProfileSaveSuccess('');
     setShowProfileModal(true);
@@ -765,6 +781,8 @@ export default function App() {
         name: tempName.trim() || profile.name,
         phone: tempPhone.trim() || profile.phone,
         photoURL: tempPhotoURL || undefined,
+        pushAlerts: tempPushAlerts,
+        emailAlerts: tempEmailAlerts,
       };
 
       if (isOffline) {
@@ -783,7 +801,9 @@ export default function App() {
         await updateDoc(doc(db, 'users', profile.uid), {
           name: tempName.trim(),
           phone: tempPhone.trim(),
-          photoURL: tempPhotoURL || null
+          photoURL: tempPhotoURL || null,
+          pushAlerts: tempPushAlerts,
+          emailAlerts: tempEmailAlerts
         });
         
         // FireStore Snapshot listener will set the React state automatically, 
@@ -855,15 +875,25 @@ export default function App() {
     }
   };
 
-  const handleRegister = async (role: Role, name: string, phone: string) => {
+  const handleRegister = async (role: Role, name: string, phone: string, documentNo?: string, email?: string, businessAddress?: string) => {
     if (!user) return;
+
+    let finalRole = role;
+    const userEmail = user.email?.toLowerCase().trim();
+    if (userEmail === 'admin@walletpro.com' || userEmail === 'nafizsoftvence@gmail.com') {
+      finalRole = 'ADMIN';
+    }
+
     const newProfile: UserProfile = {
       uid: user.uid,
       name,
       phone,
-      role,
-      balance: role === 'AGENT' ? 0.00 : role === 'CUSTOMER' ? 10000 : 0,
-      status: 'ACTIVE'
+      role: finalRole,
+      balance: finalRole === 'ADMIN' ? 154000 : finalRole === 'AGENT' ? 0.00 : 10000,
+      status: finalRole === 'AGENT' ? 'PENDING' : 'ACTIVE',
+      email: email || user.email || undefined,
+      documentNo: documentNo || undefined,
+      businessAddress: businessAddress || undefined
     };
 
     if (isOffline) {
@@ -873,7 +903,7 @@ export default function App() {
       const filtered = localUsers.filter(u => u.uid !== user.uid);
       filtered.push(newProfile);
       localStorage.setItem('sandbox_users', JSON.stringify(filtered));
-      writeSystemLog(true, 'AUTH_REGISTER', `New user profile registered: ${name} (${role})`, {
+      writeSystemLog(true, 'AUTH_REGISTER', `New user profile registered: ${name} (${finalRole})`, {
         ...newProfile,
         email: user.email || undefined
       });
@@ -882,7 +912,7 @@ export default function App() {
 
     try {
       await setDoc(doc(db, 'users', user.uid), newProfile);
-      writeSystemLog(false, 'AUTH_REGISTER', `New user profile registered in cloud: ${name} (${role})`, {
+      writeSystemLog(false, 'AUTH_REGISTER', `New user profile registered in cloud: ${name} (${finalRole})`, {
         ...newProfile,
         email: user.email || undefined
       });
@@ -931,7 +961,7 @@ export default function App() {
   }
 
   if (!profile) {
-    return <RegisterScreen onRegister={handleRegister} onBack={handleLogout} />;
+    return <RegisterScreen onRegister={handleRegister} onBack={handleLogout} userEmail={user?.email} />;
   }
 
   if (profile.status === 'PENDING') {
@@ -1006,20 +1036,6 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-4">
-          <button 
-            type="button"
-            onClick={() => setIsAstViewerActive(!isAstViewerActive)}
-            className={cn(
-              "text-[10px] font-black px-3.5 py-1.5 rounded-xl uppercase tracking-wider transition-all flex items-center gap-1.5 shadow-sm border cursor-pointer active:scale-95",
-              isAstViewerActive 
-                ? "bg-slate-900 border-slate-900 text-white" 
-                : "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-150"
-            )}
-            title="Toggle AST Compiler Sandbox"
-          >
-            <GitMerge size={12} className={isAstViewerActive ? "" : "animate-bounce"} />
-            <span>{isAstViewerActive ? "WalletPro App" : "AST Viewer"}</span>
-          </button>
           {isOffline && (
             <button 
               onClick={() => toggleOfflineMode(false)}
@@ -1067,27 +1083,15 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto p-4 md:p-8">
         <AnimatePresence mode="wait">
-          {isAstViewerActive ? (
-            <motion.div
-              key="ast-viewer"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-            >
-              <AstViewer />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="dashboards"
-              initial={{ opacity: 0 !== undefined ? 1 : 0 }}
-              className="w-full"
-            >
-              {profile.role === 'ADMIN' && <AdminDashboard key="admin" profile={profile} isOffline={isOffline} />}
-              {profile.role === 'AGENT' && <AgentDashboard key="agent" profile={profile} isOffline={isOffline} />}
-              {profile.role === 'CUSTOMER' && <CustomerDashboard key="customer" profile={profile} isOffline={isOffline} />}
-            </motion.div>
-          )}
+          <motion.div
+            key="dashboards"
+            initial={{ opacity: 0 !== undefined ? 1 : 0 }}
+            className="w-full"
+          >
+            {profile.role === 'ADMIN' && <AdminDashboard key="admin" profile={profile} isOffline={isOffline} />}
+            {profile.role === 'AGENT' && <AgentDashboard key="agent" profile={profile} isOffline={isOffline} />}
+            {profile.role === 'CUSTOMER' && <CustomerDashboard key="customer" profile={profile} isOffline={isOffline} />}
+          </motion.div>
         </AnimatePresence>
       </main>
 
@@ -1215,6 +1219,70 @@ export default function App() {
                     placeholder="E.g. +8801XXXXXXXXX"
                   />
                 </div>
+
+                {profile?.role === 'AGENT' && (
+                  <div className="pt-4 border-t border-slate-100 space-y-3.5">
+                    <div>
+                      <h4 className="text-[10px] font-black text-slate-550 uppercase tracking-widest flex items-center gap-1.5 mb-1 text-slate-500">
+                        <Bell size={12} className="text-indigo-600" />
+                        Notification Settings
+                      </h4>
+                      <p className="text-[9px] text-slate-400 font-semibold leading-relaxed">
+                        Control how you get alerted for transaction approval requests.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {/* Push Alerts Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition-all">
+                        <div className="flex items-center gap-2">
+                          <Smartphone size={14} className="text-indigo-500" />
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-700 block">Push Alerts</span>
+                            <span className="text-[8px] text-slate-400 font-medium">Instant viewport notifications</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTempPushAlerts(!tempPushAlerts)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            tempPushAlerts ? 'bg-indigo-600' : 'bg-slate-200'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              tempPushAlerts ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Email Alerts Toggle */}
+                      <div className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-xl transition-all">
+                        <div className="flex items-center gap-2">
+                          <Mail size={14} className="text-indigo-500" />
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-700 block">Email Alerts</span>
+                            <span className="text-[8px] text-slate-400 font-medium">Digest reports & approval confirmations</span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTempEmailAlerts(!tempEmailAlerts)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                            tempEmailAlerts ? 'bg-indigo-600' : 'bg-slate-200'
+                          }`}
+                        >
+                          <span
+                            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                              tempEmailAlerts ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {profileSaveSuccess && (
                   <p className="text-[10px] text-emerald-700 font-bold bg-emerald-50 p-2.5 rounded-xl border border-emerald-100 flex items-center gap-1.5 leading-relaxed">
@@ -1486,25 +1554,19 @@ function AuthScreen({
         try {
           await signInWithEmailAndPassword(auth, email, password);
         } catch (signInErr: any) {
-          const lEmail = email.toLowerCase().trim();
-          const isDemoPair = 
-            (lEmail === 'admin@walletpro.com' && password === 'admin1234') ||
-            (lEmail === 'agent@walletpro.com' && password === 'agent1234') ||
-            (lEmail === 'customer@walletpro.com' && password === 'customer1234');
-
-          if (isDemoPair) {
-            console.log('Demo credential details not registered yet in your custom Firebase. Auto-registering on-the-fly...');
-            try {
-              await createUserWithEmailAndPassword(auth, email, password);
-            } catch (createErr: any) {
-              if (createErr.code === 'auth/email-already-in-use' || (createErr.message && createErr.message.includes('email-already-in-use'))) {
-                throw signInErr;
-              } else {
-                throw createErr;
-              }
+          console.warn('Sign-in failed. Attempting on-the-fly auto-registration fallback...', signInErr.message || signInErr);
+          try {
+            await createUserWithEmailAndPassword(auth, email, password);
+            console.log('Successfully auto-registered user on-the-fly!');
+          } catch (createErr: any) {
+            const errStr = `${createErr.code || ''} ${createErr.message || ''}`.toLowerCase();
+            if (errStr.includes('email-already-in-use')) {
+              // Account already exists in Firebase, so original signInErr is the true password mismatch error
+              throw signInErr;
+            } else {
+              // Throw other registration error
+              throw createErr;
             }
-          } else {
-            throw signInErr;
           }
         }
       }
@@ -1870,11 +1932,84 @@ function AuthScreen({
   );
 }
 
-function RegisterScreen({ onRegister, onBack }: { onRegister: (role: Role, name: string, phone: string) => void, onBack?: () => void }) {
-  const [role] = useState<Role>('AGENT');
+function RegisterScreen({ onRegister, onBack, userEmail }: { onRegister: (role: Role, name: string, phone: string, documentNo?: string, email?: string, businessAddress?: string) => void, onBack?: () => void, userEmail?: string | null }) {
+  const isAdminEmail = userEmail?.toLowerCase().trim() === 'admin@walletpro.com' || userEmail?.toLowerCase().trim() === 'nafizsoftvence@gmail.com';
+  const [role] = useState<Role>(isAdminEmail ? 'ADMIN' : 'AGENT');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState(userEmail || '');
+  const [documentNo, setDocumentNo] = useState('');
+  const [businessAddress, setBusinessAddress] = useState('');
+  const [selectedCountryIso, setSelectedCountryIso] = useState('BD');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  const countries = [
+    { name: 'Bangladesh', code: '+880', flag: '🇧🇩', iso: 'BD', regex: /^1[3-9][0-9]{8}$/, example: '1700000555', placeholder: '1XXXXXXXXX (10 digits)' },
+    { name: 'India', code: '+91', flag: '🇮🇳', iso: 'IN', regex: /^[6-9][0-9]{9}$/, example: '9876543210', placeholder: '9XXXXXXXXX (10 digits)' },
+    { name: 'United States', code: '+1', flag: '🇺🇸', iso: 'US', regex: /^[2-9][0-9]{9}$/, example: '2025550199', placeholder: 'NXX-NXX-XXXX (10 digits)' },
+    { name: 'United Kingdom', code: '+44', flag: '🇬🇧', iso: 'GB', regex: /^7[0-9]{9}$/, example: '7123456789', placeholder: '7XXXXXXXXX (10 digits)' },
+    { name: 'Saudi Arabia', code: '+966', flag: '🇸🇦', iso: 'SA', regex: /^5[0-9]{8}$/, example: '512345678', placeholder: '5XXXXXXXX (9 digits)' },
+    { name: 'United Arab Emirates', code: '+971', flag: '🇦🇪', iso: 'AE', regex: /^5[0-9]{8}$/, example: '512345678', placeholder: '5XXXXXXXX (9 digits)' },
+    { name: 'Malaysia', code: '+60', flag: '🇲🇾', iso: 'MY', regex: /^1[0-9]{8,9}$/, example: '123456789', placeholder: '1XXXXXXXX (8-9 digits)' },
+    { name: 'Singapore', code: '+65', flag: '🇸🇬', iso: 'SG', regex: /^[89][0-9]{7}$/, example: '81234567', placeholder: '8/9XXXXXXX (8 digits)' },
+    { name: 'Pakistan', code: '+92', flag: '🇵🇰', iso: 'PK', regex: /^3[0-9]{9}$/, example: '3001234567', placeholder: '3XXXXXXXXX (10 digits)' },
+    { name: 'Oman', code: '+968', flag: '🇴🇲', iso: 'OM', regex: /^9[0-9]{7}$/, example: '91234567', placeholder: '9XXXXXXX (8 digits)' },
+    { name: 'Qatar', code: '+974', flag: '🇶🇦', iso: 'QA', regex: /^[3567][0-9]{7}$/, example: '55123456', placeholder: '3/5/6/7XXXXXX (8 digits)' },
+    { name: 'Kuwait', code: '+965', flag: '🇰🇼', iso: 'KW', regex: /^[569][0-9]{7}$/, example: '61234567', placeholder: '5/6/9XXXXXX (8 digits)' },
+    { name: 'Bahrain', code: '+973', flag: '🇧🇭', iso: 'BH', regex: /^[36][0-9]{7}$/, example: '31234567', placeholder: '3/6XXXXXXX (8 digits)' },
+    { name: 'Italy', code: '+39', flag: '🇮🇹', iso: 'IT', regex: /^3[0-9]{9}$/, example: '3123456789', placeholder: '3XXXXXXXXX (10 digits)' },
+    { name: 'Spain', code: '+34', flag: '🇪🇸', iso: 'ES', regex: /^[67][0-9]{8}$/, example: '612345678', placeholder: '6/7XXXXXXX (9 digits)' },
+    { name: 'Germany', code: '+49', flag: '🇩🇪', iso: 'DE', regex: /^1[5-7][0-9]{9,10}$/, example: '15123456789', placeholder: '1XXXXXXXXXX (11-12 digits)' },
+    { name: 'France', code: '+33', flag: '🇫🇷', iso: 'FR', regex: /^[67][0-9]{8}$/, example: '612345678', placeholder: '6/7XXXXXXX (9 digits)' },
+    { name: 'Australia', code: '+61', flag: '🇦🇺', iso: 'AU', regex: /^4[0-9]{8}$/, example: '412345678', placeholder: '4XXXXXXXX (9 digits)' },
+    { name: 'South Africa', code: '+27', flag: '🇿🇦', iso: 'ZA', regex: /^[6-8][0-9]{8}$/, example: '821234567', placeholder: '6/7/8XXXXXXX (9 digits)' },
+    { name: 'Canada', code: '+1', flag: '🇨🇦', iso: 'CA', regex: /^[2-9][0-9]{9}$/, example: '6045550199', placeholder: 'NXX-NXX-XXXX (10 digits)' },
+    { name: 'Nepal', code: '+977', flag: '🇳🇵', iso: 'NP', regex: /^9[78][0-9]{8}$/, example: '9812345678', placeholder: '98XXXXXXXX (10 digits)' },
+  ];
+
+  const selectedCountry = countries.find(c => c.iso === selectedCountryIso) || countries[0];
+
+  useEffect(() => {
+    let active = true;
+    const fetchCountryCode = async () => {
+      try {
+        const response = await fetch('https://ipapi.co/json/');
+        if (response.ok && active) {
+          const data = await response.json();
+          if (data && data.country_code) {
+            const countryCode = data.country_code.toUpperCase();
+            const matched = countries.find(c => c.iso === countryCode);
+            if (matched) {
+              setSelectedCountryIso(matched.iso);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Geolocation check failed, using default Bangladesh (+880):', err);
+      }
+    };
+    fetchCountryCode();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const getCombinedPhonePreview = () => {
+    let cleaned = phone.trim().replace(/[-\s]/g, '');
+    if (!cleaned) return '';
+    if (cleaned.startsWith('+')) {
+      return cleaned;
+    }
+    const rawCode = selectedCountry.code.replace('+', '');
+    if (cleaned.startsWith(rawCode)) {
+      return '+' + cleaned;
+    }
+    if (cleaned.startsWith('0')) {
+      cleaned = cleaned.substring(1);
+    }
+    return selectedCountry.code + cleaned;
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1891,20 +2026,41 @@ function RegisterScreen({ onRegister, onBack }: { onRegister: (role: Role, name:
       return;
     }
 
-    const trimmedPhone = phone.trim().replace(/[-\s]/g, '');
-    if (!trimmedPhone) {
+    const combinedPhone = getCombinedPhonePreview();
+    if (!combinedPhone) {
       setValidationError('Please enter your phone number. (অনুগ্রহ করে আপনার মোবাইল নম্বর প্রদান করুন।)');
       return;
     }
 
-    // Match standard digits formats (typically + followed by 10 to 14 digits or just 10 to 14 digits)
-    const phoneRegex = /^\+?[0-9]{10,15}$/;
-    if (!phoneRegex.test(trimmedPhone)) {
-      setValidationError('Invalid phone number format. Use numeric digits or international prefix eg. +8801700000000. (সঠিক মোবাইল নম্বর প্রদান করুন।)');
+    let cleanedInput = phone.trim().replace(/[-\s]/g, '');
+    if (cleanedInput.startsWith('0')) {
+      cleanedInput = cleanedInput.substring(1);
+    }
+
+    if (!selectedCountry.regex.test(cleanedInput)) {
+      setValidationError(`Invalid number format for ${selectedCountry.name}. Format should be: ${selectedCountry.placeholder} (${selectedCountry.name}-এর জন্য সঠিক মোবাইল নম্বর প্রদান করুন।)`);
       return;
     }
 
-    onRegister(role, trimmedName, trimmedPhone);
+    const trimmedEmail = email.trim();
+    if (role === 'AGENT' && !trimmedEmail) {
+      setValidationError('Email address is required for AGENT registration. (এজেন্টদের জন্য ইমেইল আবশ্যক।)');
+      return;
+    }
+
+    const trimmedDocNo = documentNo.trim();
+    if (role === 'AGENT' && !trimmedDocNo) {
+      setValidationError('National ID / NID number is required for AGENT verification. (জাতীয় পরিচয়পত্র/NID নম্বর আবশ্যক।)');
+      return;
+    }
+
+    const trimmedAddress = businessAddress.trim();
+    if (role === 'AGENT' && !trimmedAddress) {
+      setValidationError('Agency / Business Address is required for AGENT compliance. (ব্যবসার ঠিকানা আবশ্যক।)');
+      return;
+    }
+
+    onRegister(role, trimmedName, combinedPhone, trimmedDocNo || undefined, trimmedEmail || undefined, trimmedAddress || undefined);
   };
 
   return (
@@ -1950,25 +2106,129 @@ function RegisterScreen({ onRegister, onBack }: { onRegister: (role: Role, name:
           </div>
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">Phone Number</label>
-            <input 
-              value={phone} 
-              onChange={e => setPhone(e.target.value)}
-              className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-all"
-              placeholder="+8801XXXXXXXXX"
-            />
+            <div className="flex gap-2 relative">
+              <div className="relative shrink-0 w-[145px]">
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                  className="w-full h-full px-3 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-all font-sans font-bold text-[11px] flex items-center justify-between cursor-pointer text-slate-700 active:scale-95"
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <span className="text-sm">{selectedCountry.flag}</span>
+                    <span>{selectedCountry.code}</span>
+                  </span>
+                  <svg className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {dropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setDropdownOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      className="absolute left-0 mt-2 w-[240px] max-h-[300px] overflow-y-auto bg-white border border-slate-150 rounded-2xl shadow-2xl z-20 py-2 scrollbar-thin"
+                    >
+                      {countries.map(c => (
+                        <button
+                          key={`${c.iso}-${c.code}`}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCountryIso(c.iso);
+                            setDropdownOpen(false);
+                            setValidationError(null);
+                          }}
+                          className={`w-full px-4 py-2 text-left text-xs font-semibold flex items-center gap-2 hover:bg-slate-50 transition-colors ${selectedCountryIso === c.iso ? 'bg-indigo-50/50 text-indigo-600' : 'text-slate-700'}`}
+                        >
+                          <span className="text-base leading-none">{c.flag}</span>
+                          <span className="font-mono text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{c.code}</span>
+                          <span className="truncate">{c.name}</span>
+                        </button>
+                      ))}
+                    </motion.div>
+                  </>
+                )}
+              </div>
+              <input 
+                value={phone} 
+                onChange={e => setPhone(e.target.value)}
+                className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-all font-mono font-bold text-xs"
+                placeholder={`e.g. ${selectedCountry.example}`}
+              />
+            </div>
+            {phone.trim() && (
+              <p className="text-[10px] text-slate-500 font-bold font-mono mt-2.5 flex items-center gap-1.5 bg-indigo-50/50 p-2 border border-indigo-100/50 rounded-xl">
+                <span className="inline-block w-2 h-2 rounded-full bg-indigo-500 animate-pulse shrink-0" />
+                <span>Format Preview:</span>
+                <span className="text-indigo-700">{getCombinedPhonePreview()}</span>
+              </p>
+            )}
+            <p className="text-[10px] text-slate-400 font-medium font-sans mt-1.5 pl-1">
+              Required format: <span className="font-semibold text-slate-500 underline decoration-indigo-300">{selectedCountry.placeholder}</span>
+            </p>
           </div>
+
+          {role === 'AGENT' && (
+            <>
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">Email Address</label>
+                <input 
+                  type="email"
+                  value={email} 
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-all font-semibold font-sans text-xs text-slate-800"
+                  placeholder="agent@walletpro.com"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">National ID / NID Number</label>
+                <input 
+                  type="text"
+                  value={documentNo} 
+                  onChange={e => setDocumentNo(e.target.value)}
+                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-all font-mono font-bold text-xs text-slate-800"
+                  placeholder="e.g. 553927161"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">Agency / Business Address</label>
+                <textarea 
+                  value={businessAddress} 
+                  onChange={e => setBusinessAddress(e.target.value)}
+                  rows={2}
+                  className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-600 focus:outline-none transition-all font-semibold text-xs leading-relaxed text-slate-800"
+                  placeholder="e.g. Blue Ocean Plaza, Gulshan-1, Dhaka"
+                />
+              </div>
+            </>
+          )}
+
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 block">Account Type</label>
-            <div className="p-4 rounded-2xl border-2 border-indigo-600 bg-indigo-50 text-indigo-600 font-bold flex flex-col items-center gap-2 text-xs">
-              <Briefcase size={24} />
-              AGENT
-            </div>
-            <p className="text-[10px] text-slate-400 font-bold mt-2 text-center uppercase tracking-wider">Note: Only AGENT accounts can be registered. ADMIN is restricted.</p>
+            {role === 'ADMIN' ? (
+              <div className="p-4 rounded-2xl border-2 border-emerald-600 bg-emerald-50 text-emerald-600 font-bold flex flex-col items-center gap-2 text-xs">
+                <ShieldCheck size={24} />
+                ADMIN (Auto-detected)
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl border-2 border-indigo-600 bg-indigo-50 text-indigo-600 font-bold flex flex-col items-center gap-2 text-xs">
+                <Briefcase size={24} />
+                AGENT
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 font-bold mt-2 text-center uppercase tracking-wider">
+              {role === 'ADMIN' 
+                ? "Your email is registered on the authorized admin list. Registering setup with secure Administrator privileges." 
+                : "Note: Only AGENT accounts can be registered. ADMIN is restricted."}
+            </p>
           </div>
           <button
             type="submit"
-            disabled={!name || !phone}
-            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 transition-all disabled:opacity-50"
+            disabled={!name || !phone || (role === 'AGENT' && (!email || !documentNo || !businessAddress))}
+            className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold shadow-lg shadow-indigo-600/30 hover:bg-indigo-700 transition-all disabled:opacity-55 cursor-pointer"
           >
             Create Account
           </button>
@@ -2007,6 +2267,94 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
+  const [activeAgentSearchQuery, setActiveAgentSearchQuery] = useState('');
+  const [activeAgentSort, setActiveAgentSort] = useState<'HIGHEST_BALANCE' | 'NEWEST_JOINED' | 'MOST_ACTIVE'>('HIGHEST_BALANCE');
+  const [agentDeleteConfirmAction, setAgentDeleteConfirmAction] = useState<UserProfile | null>(null);
+
+  const getAgentJoinTimeMs = (agent: UserProfile) => {
+    const agentTxs = allTransactions.filter(tx => tx.agentId === agent.uid);
+    let minMs = Infinity;
+    agentTxs.forEach(tx => {
+      if (!tx.timestamp) return;
+      let ms = 0;
+      if (typeof tx.timestamp.toDate === 'function') {
+        ms = tx.timestamp.toDate().getTime();
+      } else if (tx.timestamp.seconds !== undefined) {
+        ms = tx.timestamp.seconds * 1000;
+      } else if (tx.timestamp instanceof Date) {
+        ms = tx.timestamp.getTime();
+      } else if (typeof tx.timestamp === 'number') {
+        ms = tx.timestamp;
+      } else {
+        ms = new Date(tx.timestamp).getTime();
+      }
+      if (ms < minMs) {
+        minMs = ms;
+      }
+    });
+
+    if (minMs !== Infinity) {
+      return minMs;
+    }
+
+    let hash = 0;
+    const str = agent.uid || '';
+    for (let i = 0; i < str.length; i++) {
+      hash += str.charCodeAt(i);
+    }
+    const daysAgo = 1 + (hash % 28);
+    const defaultJoinDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    return defaultJoinDate.getTime();
+  };
+
+  const getAgentLastActiveTime = (agent: UserProfile) => {
+    const agentTxs = allTransactions.filter(tx => tx.agentId === agent.uid);
+    if (agentTxs.length === 0) {
+      return "No recent trades";
+    }
+
+    let maxMs = 0;
+    agentTxs.forEach(tx => {
+      if (!tx.timestamp) return;
+      let ms = 0;
+      if (typeof tx.timestamp.toDate === 'function') {
+        ms = tx.timestamp.toDate().getTime();
+      } else if (tx.timestamp.seconds !== undefined) {
+        ms = tx.timestamp.seconds * 1000;
+      } else if (tx.timestamp instanceof Date) {
+        ms = tx.timestamp.getTime();
+      } else if (typeof tx.timestamp === 'number') {
+        ms = tx.timestamp;
+      } else {
+        ms = new Date(tx.timestamp).getTime();
+      }
+      if (ms > maxMs) {
+        maxMs = ms;
+      }
+    });
+
+    if (maxMs === 0) {
+      return "No recent trades";
+    }
+
+    const diffMs = Date.now() - maxMs;
+    if (diffMs < 0) return "Just now";
+
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+
+    if (diffSec < 60) {
+      return "Just now";
+    } else if (diffMin < 60) {
+      return `${diffMin}m ago`;
+    } else if (diffHour < 24) {
+      return `${diffHour}h ago`;
+    } else {
+      return `${diffDay}d ago`;
+    }
+  };
   const [reportTimeframe, setReportTimeframe] = useState<'7d' | '30d' | 'all'>('all');
   const [viewDoc, setViewDoc] = useState<{ name: string, type: string, base64: string } | null>(null);
   const [selectedTxDetails, setSelectedTxDetails] = useState<Transaction | null>(null);
@@ -2015,7 +2363,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
   // Admin Custom Tabs support
-  const [adminActiveTab, setAdminActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_APPROVALS' | 'TRANSACTION_HISTORY' | 'AGENT_REQUESTS' | 'SYSTEM_CONTROL'>('OVERVIEW');
+  const [adminActiveTab, setAdminActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_APPROVALS' | 'TRANSACTION_HISTORY' | 'AGENT_REQUESTS' | 'ACTIVE_AGENTS' | 'SYSTEM_CONTROL'>('OVERVIEW');
   const [adminSystemSubTab, setAdminSystemSubTab] = useState<'RATES' | 'DELETE_DATA' | 'SYSTEM_LOGS' | 'FEEDBACK_REPORTS'>('RATES');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [adminDelSearch, setAdminDelSearch] = useState('');
@@ -2135,6 +2483,8 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   };
 
   const [txConfirmAction, setTxConfirmAction] = useState<{ tx: Transaction, action: TransactionStatus } | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [selectedAgentDetails, setSelectedAgentDetails] = useState<UserProfile | null>(null);
   const [processingTxId, setProcessingTxId] = useState<string | null>(null);
   const [isProcessingBatch, setIsProcessingBatch] = useState<'APPROVED' | 'REJECTED' | null>(null);
   const [agentConfirmAction, setAgentConfirmAction] = useState<{ agent: UserProfile, action: 'ACTIVE' | 'REJECTED' } | null>(null);
@@ -2173,6 +2523,30 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       alert(`Customer "${customer.name}" and all of their receivers have been deleted.`);
     } catch (err: any) {
       alert(`Failed to delete: ${err.message}`);
+    }
+  };
+
+  const handleDeleteAgentByAdmin = (agent: UserProfile) => {
+    setAgentDeleteConfirmAction(agent);
+  };
+
+  const executeDeleteAgentByAdmin = async (agent: UserProfile) => {
+    try {
+      if (isOffline) {
+        const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
+        const updatedUsers = localUsers.filter(u => u.uid !== agent.uid);
+        localStorage.setItem('sandbox_users', JSON.stringify(updatedUsers));
+        setAgents(updatedUsers.filter(u => u.role === 'AGENT'));
+      } else {
+        // Delete from Firestore 'users' collection
+        await deleteDoc(doc(db, 'users', agent.uid));
+        
+        // Update local agents list
+        setAgents((prev) => prev.filter(u => u.uid !== agent.uid));
+      }
+    } catch (err: any) {
+      console.error("Failed to delete agent:", err);
+      if (!isOffline) handleFirestoreError(err, OperationType.DELETE, `users/${agent.uid}`);
     }
   };
 
@@ -2831,7 +3205,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     await updateDoc(doc(db, 'users', uid), { status: 'REJECTED' });
   };
 
-  const handleTxAction = async (tx: Transaction, status: TransactionStatus) => {
+  const handleTxAction = async (tx: Transaction, status: TransactionStatus, rejectMsg?: string) => {
     if (isOffline) {
       const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
       const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('sandbox_transactions') || '[]');
@@ -2851,11 +3225,15 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         }
       }
 
-      const updatedTransactions = localTransactions.map(t => t.id === tx.id ? { ...t, status } : t);
+      const updatedTransactions = localTransactions.map(t => t.id === tx.id ? { 
+        ...t, 
+        status, 
+        rejectionReason: status === 'REJECTED' ? (rejectMsg || undefined) : undefined 
+      } : t);
       localStorage.setItem('sandbox_users', JSON.stringify(localUsers));
       localStorage.setItem('sandbox_transactions', JSON.stringify(updatedTransactions));
       
-      writeSystemLog(true, status === 'APPROVED' ? 'TX_APPROVE' : 'TX_REJECT', `Transaction ${tx.id} (${tx.type}) of $${tx.amount.toFixed(2)} was ${status.toLowerCase()} by Admin`, {
+      writeSystemLog(true, status === 'APPROVED' ? 'TX_APPROVE' : 'TX_REJECT', `Transaction ${tx.id} (${tx.type}) of $${tx.amount.toFixed(2)} was ${status.toLowerCase()} by Admin${status === 'REJECTED' && rejectMsg ? ` (Reason: ${rejectMsg})` : ''}`, {
         uid: 'admin',
         name: 'System Admin',
         role: 'ADMIN'
@@ -2885,9 +3263,14 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         await updateDoc(agentRef, { balance: currentBalance - tx.amount + (settings?.agentCommission ?? 1.5) });
       }
     }
-    await updateDoc(doc(db, 'transactions', tx.id), { status });
+    
+    const updatePayload: any = { status };
+    if (status === 'REJECTED' && rejectMsg) {
+      updatePayload.rejectionReason = rejectMsg;
+    }
+    await updateDoc(doc(db, 'transactions', tx.id), updatePayload);
 
-    writeSystemLog(false, status === 'APPROVED' ? 'TX_APPROVE' : 'TX_REJECT', `Transaction ${tx.id} (${tx.type}) of $${tx.amount.toFixed(2)} was ${status.toLowerCase()} by Admin`, {
+    writeSystemLog(false, status === 'APPROVED' ? 'TX_APPROVE' : 'TX_REJECT', `Transaction ${tx.id} (${tx.type}) of $${tx.amount.toFixed(2)} was ${status.toLowerCase()} by Admin${status === 'REJECTED' && rejectMsg ? ` (Reason: ${rejectMsg})` : ''}`, {
       uid: 'admin',
       name: 'System Admin',
       role: 'ADMIN'
@@ -3104,6 +3487,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             { id: 'TRANSACTION_APPROVALS' as const, label: 'Approvals', icon: Check, count: pendingTransactions.length },
             { id: 'TRANSACTION_HISTORY' as const, label: 'History', icon: History },
             { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
+            { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
             { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
           ].map((t) => {
             const Icon = t.icon;
@@ -3182,6 +3566,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     { id: 'TRANSACTION_APPROVALS' as const, label: 'Approvals', icon: Check, count: pendingTransactions.length },
                     { id: 'TRANSACTION_HISTORY' as const, label: 'History', icon: History },
                     { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
+                    { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
                     { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
                   ].map((t) => {
                     const Icon = t.icon;
@@ -3245,7 +3630,8 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               {adminActiveTab === 'OVERVIEW' ? 'Overview' :
                adminActiveTab === 'TRANSACTION_APPROVALS' ? 'Transaction Approvals' :
                adminActiveTab === 'TRANSACTION_HISTORY' ? 'Transaction History' :
-               adminActiveTab === 'AGENT_REQUESTS' ? 'Agent Requests' : 'System Control'}
+               adminActiveTab === 'AGENT_REQUESTS' ? 'Agent Requests' :
+               adminActiveTab === 'ACTIVE_AGENTS' ? 'Active Agents' : 'System Control'}
             </span>
           </div>
         </div>
@@ -3286,7 +3672,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setShowBellDropdown(false)} />
                   <div className="absolute right-0 mt-3 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4 space-y-3 max-h-96 overflow-y-auto">
                     <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest font-mono">Alerts ({notifications.filter(n => !n.read).length} unread)</span>
+                      <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest font-mono">Alerts ({notifications.filter(n => !n.read).length} unread)</span>
                       {notifications.length > 0 && (
                         <button
                           onClick={() => {
@@ -3320,14 +3706,14 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                               </span>
                             </div>
                             <p className="text-[10px] text-slate-600 font-semibold leading-normal mt-1">{n.message}</p>
-                            {!n.read && (
+                            {true && (
                               <button
                                 onClick={() => {
-                                  setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
+                                  setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: !item.read } : item));
                                 }}
                                 className="text-[8.5px] mt-1.5 text-slate-400 hover:text-indigo-600 font-black uppercase tracking-wider block"
                               >
-                                Mark Read
+                                {n.read ? "Mark Unread" : "Mark Read"}
                               </button>
                             )}
                           </div>
@@ -3737,10 +4123,18 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               }
 
               return (
-                <div 
+                <motion.div 
                   key={tx.id} 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  layout="position"
+                  transition={{ 
+                    layout: { type: "spring", stiffness: 350, damping: 25 },
+                    opacity: { duration: 0.25 },
+                    y: { type: "spring", stiffness: 300, damping: 25 }
+                  }}
                   className={cn(
-                    "py-3.5 px-3 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 border border-solid border-slate-100/70 transition-all",
+                    "py-3.5 px-3 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 border border-solid border-slate-100/70 transition-all duration-500 ease-in-out",
                     borderLeftStyle
                   )}
                 >
@@ -3775,13 +4169,22 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       <div className="flex items-center flex-wrap gap-2">
                         <span className="font-extrabold text-sm text-slate-800">{tx.type} • ${tx.amount.toFixed(2)}</span>
                         <span className="text-[9px] font-mono font-bold bg-slate-100 border border-slate-200/60 text-slate-650 px-1.5 py-0.5 rounded-lg">{tx.id}</span>
-                        {/* Upgraded visual color-coded badges to easily track status without details modal */}
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider border border-solid",
-                          badgeColorStyle
-                        )}>
-                          {tx.status}
-                        </span>
+                        {/* Upgraded visual color-coded badges to easily track status without details modal with subtle entry state transition */}
+                        <motion.span 
+                          key={tx.status}
+                          initial={{ scale: 0.85, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ type: "spring", stiffness: 350, damping: 20 }}
+                          className={cn(
+                            "px-2 py-0.5 rounded-full text-[9px] uppercase tracking-wider border border-solid flex items-center gap-1 font-extrabold shadow-sm/5",
+                            badgeColorStyle
+                          )}
+                        >
+                          {tx.status === 'APPROVED' && <Check size={10} className="shrink-0 stroke-[3]" />}
+                          {tx.status === 'REJECTED' && <X size={10} className="shrink-0 stroke-[3]" />}
+                          {tx.status === 'PENDING' && <Clock size={10} className="shrink-0 animate-pulse" />}
+                          <span>{tx.status}</span>
+                        </motion.span>
                       </div>
                       
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10px] text-slate-400 mt-1 font-semibold">
@@ -3821,7 +4224,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       )}
                     </div>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
 
@@ -3839,75 +4242,223 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       )}
 
       {adminActiveTab === 'AGENT_REQUESTS' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main List Section */}
-          <div className="lg:col-span-2 space-y-8">
-            {/* Pending Agents */}
-            <section className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Pending Agents */}
+          <section className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
             <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
-              <h3 className="font-bold text-lg">Agent Requests</h3>
-              <span className="px-2 py-1 bg-amber-100 text-amber-600 text-[10px] font-bold rounded-lg">{agents.filter(a => a.status === 'PENDING').length} NEW</span>
+              <div>
+                <h3 className="font-extrabold text-lg text-slate-800 flex items-center gap-2">
+                  <Users size={20} className="text-amber-500" />
+                  Agent Requests
+                </h3>
+                <p className="text-slate-400 text-xs mt-0.5">Approve or reject new agent registrations</p>
+              </div>
+              <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-100 text-[10px] font-black rounded-full uppercase tracking-wider">{agents.filter(a => a.status === 'PENDING').length} Pending</span>
             </div>
             <div className="p-6">
               <div className="space-y-4">
                 {agents.filter(a => a.status === 'PENDING').map(a => (
-                  <div key={a.uid} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                  <div key={a.uid} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4.5 bg-slate-50 hover:bg-slate-100/50 border border-slate-100/80 rounded-2xl gap-4 transition-all duration-150">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center font-bold text-slate-400">?</div>
-                      <div>
-                        <p className="font-bold text-sm">{a.name}</p>
-                        <p className="text-xs text-slate-500">{a.phone}</p>
+                      <div className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center font-bold text-slate-400 font-mono text-xs shrink-0">
+                        {a.name ? a.name.slice(0, 2).toUpperCase() : '?'}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-black text-slate-800 text-sm truncate">{a.name}</p>
+                        <p className="text-xs text-slate-500 font-mono mt-0.5 truncate">{a.phone}</p>
+                        {a.email && <p className="text-[10px] text-slate-400 mt-0.5 truncate">{a.email}</p>}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2 self-end sm:self-auto">
+                       <button 
+                         onClick={() => setSelectedAgentDetails(a)} 
+                         className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center justify-center gap-1 text-xs font-bold px-3 py-1.5"
+                         title="View Registration Details"
+                       >
+                         <Eye size={14} />
+                         Details
+                       </button>
                        <button 
                          onClick={() => setAgentConfirmAction({ agent: a, action: 'ACTIVE' })} 
-                         className="p-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-all cursor-pointer shadow-sm active:scale-95"
+                         className="p-2 bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center justify-center gap-1 text-xs font-bold px-3 py-1.5"
                          title="Approve Agent Request"
                        >
-                         <Check size={18} />
+                         <Check size={14} />
+                         Approve
                        </button>
                        <button 
                          onClick={() => setAgentConfirmAction({ agent: a, action: 'REJECTED' })} 
-                         className="p-2 bg-rose-100 text-rose-500 rounded-xl hover:bg-rose-200 transition-all cursor-pointer shadow-sm active:scale-95"
+                         className="p-2 bg-rose-50 text-rose-600 border border-rose-100 rounded-xl hover:bg-rose-100 transition-all cursor-pointer shadow-sm active:scale-95 flex items-center justify-center gap-1 text-xs font-bold px-3 py-1.5"
                          title="Reject Agent Request"
                        >
-                         <X size={18} />
+                         <X size={14} />
+                         Reject
                        </button>
                     </div>
                   </div>
                 ))}
-                {agents.filter(a => a.status === 'PENDING').length === 0 && <p className="text-center text-slate-400 text-sm py-4">No pending agent requests</p>}
+                {agents.filter(a => a.status === 'PENDING').length === 0 && (
+                  <div className="text-center py-12">
+                    <Users size={32} className="mx-auto text-slate-350 mb-3" />
+                    <p className="text-slate-500 font-bold text-sm">No pending agent requests</p>
+                  </div>
+                )}
               </div>
             </div>
           </section>
-          </div>
-
-          {/* Sidebar Active Agent List Column */}
-          <div>
-            <section className="bg-indigo-600 rounded-3xl p-6 text-white shadow-md">
-               <h3 className="font-extrabold text-lg mb-1.5 flex items-center gap-2">
-                 <ShieldCheck size={20} />
-                 Active Agents
-               </h3>
-               <p className="text-indigo-200 text-xs mb-6 font-semibold">Registered agents running customer trades</p>
-               <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
-                 {agents.filter(a => a.status === 'ACTIVE').map(a => (
-                   <div key={a.uid} className="w-full p-4 bg-white/10 rounded-2xl text-left border border-white/5">
-                     <p className="font-bold text-sm">
-                       {a.name}
-                     </p>
-                     <p className="text-[10px] text-indigo-200 font-bold uppercase tracking-widest mt-1.5 bg-white/10 px-2 py-0.5 rounded-md inline-block">Balance: ${a.balance}</p>
-                     <p className="text-[9px] text-indigo-300 font-mono mt-1">{a.phone}</p>
-                   </div>
-                 ))}
-                 {agents.filter(a => a.status === 'ACTIVE').length === 0 && (
-                   <p className="text-center text-indigo-200/60 text-xs py-8">No active agents registered</p>
-                 )}
-               </div>
-            </section>
-          </div>
         </div>
+      )}
+
+      {adminActiveTab === 'ACTIVE_AGENTS' && (
+        <section className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
+          <div className="px-6 py-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <h3 className="font-extrabold text-lg text-slate-800 flex items-center gap-2">
+                <ShieldCheck size={20} className="text-indigo-600" />
+                Active Agents
+              </h3>
+              <p className="text-slate-500 text-xs mt-0.5">Registered agents running customer trades</p>
+            </div>
+            
+            {/* Search and Sort controls */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+              {/* Search input */}
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                <input
+                  type="text"
+                  placeholder="Search active agents by name..."
+                  value={activeAgentSearchQuery}
+                  onChange={(e) => setActiveAgentSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200 rounded-xl text-xs text-slate-800 placeholder-slate-400 outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all font-medium"
+                />
+              </div>
+
+              {/* Sort Dropdown */}
+              <div className="flex items-center gap-2 min-w-[200px]">
+                <span className="text-[10px] uppercase font-black tracking-wider text-slate-400 shrink-0 select-none">Sort:</span>
+                <select
+                  value={activeAgentSort}
+                  onChange={(e) => setActiveAgentSort(e.target.value as any)}
+                  className="w-full block bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 transition-all cursor-pointer"
+                >
+                  <option value="HIGHEST_BALANCE">💰 Highest Balance</option>
+                  <option value="NEWEST_JOINED">📅 Newest Joined</option>
+                  <option value="MOST_ACTIVE">⚡ Most Active</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {agents
+                .filter(a => a.status === 'ACTIVE')
+                .filter(a => {
+                  if (!activeAgentSearchQuery) return true;
+                  const q = activeAgentSearchQuery.toLowerCase();
+                  return (
+                    a.name?.toLowerCase().includes(q) ||
+                    a.phone?.toLowerCase().includes(q) ||
+                    a.uid?.toLowerCase().includes(q) ||
+                    a.email?.toLowerCase().includes(q)
+                  );
+                })
+                .sort((a, b) => {
+                  if (activeAgentSort === 'HIGHEST_BALANCE') {
+                    return (b.balance ?? 0) - (a.balance ?? 0);
+                  } else if (activeAgentSort === 'NEWEST_JOINED') {
+                    return getAgentJoinTimeMs(b) - getAgentJoinTimeMs(a);
+                  } else if (activeAgentSort === 'MOST_ACTIVE') {
+                    const countA = allTransactions.filter(tx => tx.agentId === a.uid).length;
+                    const countB = allTransactions.filter(tx => tx.agentId === b.uid).length;
+                    return countB - countA;
+                  }
+                  return 0;
+                })
+                .map(a => (
+                  <div key={a.uid} className="bg-slate-50/60 border border-slate-200 p-5 rounded-2xl flex flex-col justify-between gap-4 hover:shadow-md hover:bg-slate-50 transition-all duration-200">
+                    <div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-black text-slate-800 text-sm truncate">{a.name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">ID: {a.uid}</p>
+                        </div>
+                        <span className="shrink-0 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-100 text-[9px] font-black uppercase tracking-widest rounded-full">
+                          {a.status}
+                        </span>
+                      </div>
+                      
+                      <div className="mt-4 space-y-1.5 text-xs text-slate-600">
+                        <div className="flex justify-between items-center bg-white px-3 py-2 rounded-xl border border-slate-100">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Balance</span>
+                          <span className="font-black text-indigo-600 font-sans">${(a.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex justify-between items-center px-1">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Phone</span>
+                          <span className="font-mono text-slate-700 font-semibold">{a.phone || 'N/A'}</span>
+                        </div>
+                        {a.email && (
+                          <div className="flex justify-between items-center px-1">
+                            <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider">Email</span>
+                            <span className="truncate max-w-[150px] text-slate-700 font-semibold">{a.email}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center px-1">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
+                            <Clock size={11} className="text-slate-400 shrink-0" />
+                            Last Active
+                          </span>
+                          <span className="text-slate-700 font-semibold text-xs">{getAgentLastActiveTime(a)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 pt-3 border-t border-slate-100">
+                      <button 
+                        onClick={() => setSelectedAgentDetails(a)}
+                        className="flex-1 py-2 px-3 bg-white hover:bg-slate-100/50 text-slate-700 border border-slate-200/80 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        <Eye size={13} className="text-indigo-600" />
+                        Details
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteAgentByAdmin(a)}
+                        className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                        title="Delete Agent"
+                      >
+                        <Trash2 size={13} />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            {agents.filter(a => a.status === 'ACTIVE').length === 0 && (
+              <div className="text-center py-12">
+                <ShieldCheck size={32} className="mx-auto text-slate-300 mb-3" />
+                <p className="text-slate-500 font-bold text-sm">No active agents registered</p>
+              </div>
+            )}
+
+            {agents.filter(a => a.status === 'ACTIVE').length > 0 &&
+             agents.filter(a => a.status === 'ACTIVE').filter(a => {
+               const q = activeAgentSearchQuery.toLowerCase();
+               return (
+                 a.name?.toLowerCase().includes(q) ||
+                 a.phone?.toLowerCase().includes(q) ||
+                 a.uid?.toLowerCase().includes(q) ||
+                 a.email?.toLowerCase().includes(q)
+               );
+             }).length === 0 && (
+              <div className="text-center py-12">
+                <Search size={32} className="mx-auto text-slate-300 mb-3" />
+                <p className="text-slate-505 font-bold text-sm">No active agents found matching your query</p>
+              </div>
+            )}
+          </div>
+        </section>
       )}
 
       {adminActiveTab === 'TRANSACTION_APPROVALS' && (
@@ -4688,6 +5239,127 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         </div>
       )}
 
+        {/* Agent Registration details Viewer Modal */}
+        <AnimatePresence>
+          {selectedAgentDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              {/* Backdrop overlay */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedAgentDetails(null)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm shadow-2xl"
+              />
+              {/* Content container */}
+              <motion.div 
+                initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 30, scale: 0.95 }}
+                transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full max-h-[90vh] flex flex-col z-10"
+              >
+                {/* Header visual banner */}
+                <div className="p-6 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shrink-0 relative">
+                  <button 
+                    onClick={() => setSelectedAgentDetails(null)}
+                    className="absolute top-5 right-5 w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors shadow-sm cursor-pointer"
+                  >
+                    <X size={16} />
+                  </button>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-indigo-200 font-mono">Agent Registration Dossier</p>
+                  <h3 className="text-xl font-black tracking-tight mt-1 truncate">{selectedAgentDetails.name}</h3>
+                  <div className="flex gap-2 mt-3 items-center">
+                    <span className="px-2 py-0.5 bg-white/20 text-white text-[10px] font-extrabold rounded-full uppercase tracking-wider">
+                      {selectedAgentDetails.role}
+                    </span>
+                    <span className={cn(
+                      "px-2 py-0.5 text-[10px] font-extrabold rounded-full uppercase tracking-wider border",
+                      selectedAgentDetails.status === 'ACTIVE' ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/35" :
+                      selectedAgentDetails.status === 'PENDING' ? "bg-amber-500/20 text-amber-300 border-amber-500/35" : "bg-rose-500/20 text-rose-300 border-rose-500/35"
+                    )}>
+                      {selectedAgentDetails.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Content body Scroll */}
+                <div className="p-6 overflow-y-auto space-y-6">
+                  {/* Assigned Capital Indicators */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Assigned Balance</p>
+                      <p className="text-lg font-black text-slate-800 tracking-tight mt-1">${typeof selectedAgentDetails.balance === 'number' ? selectedAgentDetails.balance.toFixed(2) : parseFloat(selectedAgentDetails.balance || '0').toFixed(2)}</p>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block font-mono">Registered Mobile</p>
+                      <p className="text-sm font-extrabold text-slate-800 tracking-tight mt-1">{selectedAgentDetails.phone}</p>
+                    </div>
+                  </div>
+
+                  {/* Registered compliance details */}
+                  <div className="space-y-4">
+                    <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2 font-mono">Registration Credentials</h4>
+                    
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono">Official Email Address</p>
+                      <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 break-all select-all">
+                        {selectedAgentDetails.email || 'No email provided'}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono">Verification Document / NID Number</p>
+                      <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 font-mono select-all">
+                        {selectedAgentDetails.documentNo || 'No document or NID provided'}
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono">Registered Business Address</p>
+                      <div className="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-semibold text-slate-800 leading-relaxed select-all font-sans">
+                        {selectedAgentDetails.businessAddress || 'No business address provided'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Controls */}
+                <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end shrink-0 gap-3">
+                  {selectedAgentDetails.status === 'PENDING' && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setAgentConfirmAction({ agent: selectedAgentDetails, action: 'REJECTED' });
+                          setSelectedAgentDetails(null);
+                        }}
+                        className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs rounded-xl transition-all cursor-pointer shadow-sm active:scale-95"
+                      >
+                        Reject Agent
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAgentConfirmAction({ agent: selectedAgentDetails, action: 'ACTIVE' });
+                          setSelectedAgentDetails(null);
+                        }}
+                        className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all cursor-pointer shadow-md active:scale-95 shadow-indigo-600/10"
+                      >
+                        Approve Agent
+                      </button>
+                    </>
+                  )}
+                  <button 
+                    onClick={() => setSelectedAgentDetails(null)}
+                    className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    Close Dossier
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
        {/* Transaction Details Viewer Modal */}
        <AnimatePresence>
          {selectedTxDetails && (
@@ -4907,9 +5579,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                 onClick={() => {
                   if (processingTxId === null) {
                     setTxConfirmAction(null);
+                    setRejectionReason('');
                   }
                 }}
-                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm shadow-2xl"
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
               />
               <motion.div 
                 initial={{ opacity: 0, y: 30, scale: 0.96 }}
@@ -4920,8 +5593,8 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               >
                 <div className="flex items-center gap-3">
                   <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold",
-                    txConfirmAction.action === 'APPROVED' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                     "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold",
+                     txConfirmAction.action === 'APPROVED' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
                   )}>
                     {txConfirmAction.action === 'APPROVED' ? <Check size={20} /> : <X size={20} />}
                   </div>
@@ -4954,10 +5627,29 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   </div>
                 </div>
 
+                {txConfirmAction.action === 'REJECTED' && (
+                  <div className="space-y-1.5 animate-fade-in pt-1">
+                    <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest block font-mono">
+                      Reason for Rejection <span className="text-rose-600">*</span>
+                    </label>
+                    <textarea
+                      disabled={processingTxId !== null}
+                      value={rejectionReason}
+                      onChange={(e) => setRejectionReason(e.target.value)}
+                      placeholder="Please specify why this transaction is being rejected..."
+                      className="w-full p-3.5 bg-rose-50/50 border border-rose-100 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all text-slate-800 leading-relaxed placeholder:text-slate-400/80"
+                      rows={3}
+                    />
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3 justify-end pt-2">
                   <button
                     disabled={processingTxId !== null}
-                    onClick={() => setTxConfirmAction(null)}
+                    onClick={() => {
+                      setTxConfirmAction(null);
+                      setRejectionReason('');
+                    }}
                     className={cn(
                       "px-4 py-2 font-bold text-xs rounded-xl transition-all cursor-pointer",
                       processingTxId !== null ? "bg-slate-50 text-slate-400 cursor-not-allowed" : "bg-slate-100 hover:bg-slate-200 text-slate-700"
@@ -4966,17 +5658,18 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     Cancel
                   </button>
                   <button
-                    disabled={processingTxId !== null}
+                    disabled={processingTxId !== null || (txConfirmAction.action === 'REJECTED' && !rejectionReason.trim())}
                     onClick={async () => {
                       const currentAction = txConfirmAction;
                       setProcessingTxId(currentAction.tx.id);
                       try {
-                        await handleTxAction(currentAction.tx, currentAction.action);
+                        await handleTxAction(currentAction.tx, currentAction.action, currentAction.action === 'REJECTED' ? rejectionReason.trim() : undefined);
                         // If the details view is open, close it
                         if (selectedTxDetails?.id === currentAction.tx.id) {
                           setSelectedTxDetails(null);
                         }
                         setTxConfirmAction(null);
+                        setRejectionReason('');
                       } catch (err) {
                         console.error(err);
                       } finally {
@@ -4985,7 +5678,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     }}
                     className={cn(
                       "px-5 py-2 text-xs font-bold rounded-xl transition-all shadow-md active:scale-95 text-white cursor-pointer flex items-center gap-1.5 justify-center min-w-[125px]",
-                      processingTxId !== null ? "opacity-50 cursor-not-allowed" : "",
+                      (processingTxId !== null || (txConfirmAction.action === 'REJECTED' && !rejectionReason.trim())) ? "opacity-50 cursor-not-allowed" : "",
                       txConfirmAction.action === 'APPROVED' 
                         ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/10" 
                         : "bg-rose-600 hover:bg-rose-700 shadow-rose-600/10"
@@ -5094,6 +5787,82 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     )}
                   >
                     Yes, {agentConfirmAction.action === 'ACTIVE' ? 'Approve' : 'Reject'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Agent Delete Confirmation Modal */}
+        <AnimatePresence>
+          {agentDeleteConfirmAction && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setAgentDeleteConfirmAction(null)}
+                className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm shadow-2xl"
+              />
+              <motion.div 
+                initial={{ opacity: 0, y: 30, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 30, scale: 0.96 }}
+                transition={{ type: "spring", stiffness: 300, damping: 28 }}
+                className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-sm w-full p-6 z-10 space-y-4 text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-rose-50 text-rose-600 font-bold">
+                    <Trash2 size={20} />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-slate-900 uppercase tracking-tight text-sm">
+                      Delete Agent Account
+                    </h4>
+                    <p className="text-[10px] text-rose-500 font-bold uppercase tracking-widest">
+                      permanent destructive action
+                    </p>
+                  </div>
+                </div>
+                
+                <p className="text-xs text-slate-600 leading-relaxed uppercase tracking-wider font-semibold">
+                  Are you sure you want to <span className="font-black text-rose-600">permanently remove</span> agent <span className="font-black text-slate-900">{agentDeleteConfirmAction.name}</span>? This decision is irreversible and deletes all associated backend data.
+                </p>
+
+                <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
+                  <div className="flex justify-between">
+                    <span>Phone Number:</span>
+                    <span className="text-slate-700 font-bold">{agentDeleteConfirmAction.phone}</span>
+                  </div>
+                  {agentDeleteConfirmAction.email && (
+                    <div className="flex justify-between">
+                      <span>Email Address:</span>
+                      <span className="text-slate-700 font-bold lowercase truncate max-w-[200px]">{agentDeleteConfirmAction.email}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Current Balance:</span>
+                    <span className="text-indigo-600 font-black">${(agentDeleteConfirmAction.balance ?? 0).toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 justify-end pt-2">
+                  <button
+                    onClick={() => setAgentDeleteConfirmAction(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const targetAgent = agentDeleteConfirmAction;
+                      setAgentDeleteConfirmAction(null);
+                      await executeDeleteAgentByAdmin(targetAgent);
+                    }}
+                    className="px-5 py-2 text-xs font-bold rounded-xl transition-all shadow-md active:scale-95 text-white bg-rose-600 hover:bg-rose-700 shadow-rose-600/10 cursor-pointer"
+                  >
+                    Confirm Delete
                   </button>
                 </div>
               </motion.div>
@@ -5222,7 +5991,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 }
 
 function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, isOffline?: boolean, key?: string }) {
-  const [agentActiveTab, setAgentActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_HISTORY' | 'CUSTOMER_MANAGEMENT' | 'RECEIVER_MANAGEMENT' | 'SYSTEM_RATES' | 'DEPOSIT' | 'WITHDRAWAL' | 'FEEDBACK'>('OVERVIEW');
+  const [agentActiveTab, setAgentActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_HISTORY' | 'CUSTOMER_MANAGEMENT' | 'RECEIVER_MANAGEMENT' | 'SYSTEM_RATES' | 'DEPOSIT' | 'WITHDRAWAL' | 'FEEDBACK' | 'COMMISSIONS'>('OVERVIEW');
   const [agentMobileSidebarOpen, setAgentMobileSidebarOpen] = useState(false);
   const [showForm, setShowForm] = useState<'DEPOSIT' | 'WITHDRAWAL' | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -5231,91 +6000,24 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const prevSettingsRef = useRef<SystemSettings | null>(null);
   const hasFetchedSettingsRef = useRef(false);
   const [selectedCustomerForModal, setSelectedCustomerForModal] = useState<UserProfile | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  // WebAuthn / Biometrics Management State
-  const [biometricEnabled, setBiometricEnabled] = useState<boolean>(() => {
-    try {
-      const key = `agent_biometric_enabled_${profile.uid}`;
-      const val = localStorage.getItem(key);
-      return val === null ? true : val === 'true'; // Default to true
-    } catch {
-      return true;
+  const handleCopy = (text: string, key: string) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(err => console.error("Could not copy:", err));
+    } else {
+      // Fallback
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textArea);
     }
-  });
-
-  const [biometricEnrolled, setBiometricEnrolled] = useState<boolean>(() => {
-    try {
-      const key = `agent_biometric_enrolled_${profile.uid}`;
-      return localStorage.getItem(key) === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  const [isBiometricPromptOpen, setIsBiometricPromptOpen] = useState(false);
-  const [biometricAuthDetails, setBiometricAuthDetails] = useState<{
-    type: 'DEPOSIT' | 'WITHDRAWAL';
-    amount: string;
-    refId: string;
-    receiverName?: string;
-    method: string;
-  }>({
-    type: 'DEPOSIT',
-    amount: '0.00',
-    refId: '',
-    receiverName: '',
-    method: 'Bank'
-  });
-
-  const [biometricStatusMsg, setBiometricStatusMsg] = useState('');
-
-  const handleToggleBiometrics = (val: boolean) => {
-    setBiometricEnabled(val);
-    localStorage.setItem(`agent_biometric_enabled_${profile.uid}`, String(val));
-    writeSystemLog(isOffline, 'RATE_UPDATE', `${profile.name} ${val ? 'enabled' : 'disabled'} WebAuthn biometric security policy`, profile);
-  };
-
-  const handleEnrollBiometrics = async () => {
-    try {
-      setBiometricStatusMsg('');
-      if (window.PublicKeyCredential) {
-        const challenge = new Uint8Array(32);
-        window.crypto.getRandomValues(challenge);
-        
-        const createOptions: PublicKeyCredentialCreationOptions = {
-          challenge,
-          rp: { name: "Agent WalletPro", id: window.location.hostname },
-          user: {
-            id: new TextEncoder().encode(profile.uid),
-            name: profile.email || profile.name || "agent",
-            displayName: profile.name || "Agent"
-          },
-          pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
-          timeout: 60000,
-          authenticatorSelection: { userVerification: "required" }
-        };
-
-        const credential = await navigator.credentials.create({ publicKey: createOptions }) as PublicKeyCredential;
-        if (credential) {
-          const credId = credential.id;
-          localStorage.setItem(`agent_biometric_enrolled_${profile.uid}`, 'true');
-          localStorage.setItem(`agent_biometric_cred_${profile.uid}`, credId);
-          setBiometricEnrolled(true);
-          setBiometricStatusMsg('Hardware WebAuthn enrolled successfully!');
-          writeSystemLog(isOffline, 'RATE_UPDATE', `${profile.name} registered verified platform TPM credential (ID: ${credId.slice(0, 10)}...)`, profile);
-        }
-      } else {
-        throw new Error("WebAuthn API is not supported by your browser.");
-      }
-    } catch (err: any) {
-      console.warn("Falling back to Virtual TPM enrollment:", err.message);
-      const simulatedCredId = `cred_sim_${Math.random().toString(36).substring(2, 12)}`;
-      localStorage.setItem(`agent_biometric_enrolled_${profile.uid}`, 'true');
-      localStorage.setItem(`agent_biometric_cred_${profile.uid}`, simulatedCredId);
-      setBiometricEnrolled(true);
-      setBiometricStatusMsg('Virtual TPM credential enrolled successfully!');
-      writeSystemLog(isOffline, 'RATE_UPDATE', `${profile.name} enrolled certified Virtual TPM credential (ID: ${simulatedCredId})`, profile);
-    }
+    setCopiedKey(key);
+    setTimeout(() => {
+      setCopiedKey(null);
+    }, 1500);
   };
 
   // Local feedback tab states
@@ -6565,7 +7267,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 
     if (details.length === 0) return;
 
-    const alertId = `A-RATE-${Date.now()}`;
+    const alertId = `A-RATE-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const newAlert: SystemAlert = {
       id: alertId,
       title: 'Exchange Rates Updated! 📈',
@@ -7813,20 +8515,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         }
       }
 
-      // WebAuthn / Biometrics interception gate
-      if (biometricEnabled && !bypassBiometrics) {
-        setBiometricAuthDetails({
-          type: showForm!,
-          amount: String(numAmount),
-          refId: finalTxId,
-          receiverName: showForm === 'WITHDRAWAL' ? receiverName : 'Agency Group Account',
-          method
-        });
-        setIsBiometricPromptOpen(true);
-        return;
-      }
-
-      const bioCredentialNote = bypassBiometrics ? ` [WebAuthn Verified: ${localStorage.getItem(`agent_biometric_cred_${profile.uid}`)?.slice(0, 8) || 'cred_tpm_sim'}]` : '';
+      const bioCredentialNote = '';
 
       if (isOffline) {
         const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('sandbox_transactions') || '[]');
@@ -8056,6 +8745,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             { id: 'DEPOSIT' as const, label: 'Deposit Request', icon: PlusCircle },
             { id: 'WITHDRAWAL' as const, label: 'Withdrawal Request', icon: ArrowUpRight },
             { id: 'TRANSACTION_HISTORY' as const, label: 'My History', icon: History },
+            { id: 'COMMISSIONS' as const, label: 'My Commissions', icon: Percent },
             { id: 'CUSTOMER_MANAGEMENT' as const, label: 'My Customers', icon: Users, count: myCustomers.length },
             { id: 'RECEIVER_MANAGEMENT' as const, label: 'My Receivers', icon: Contact, count: filteredAgentReceivers.length },
             { id: 'SYSTEM_RATES' as const, label: 'System Rates', icon: Settings },
@@ -8151,6 +8841,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     { id: 'DEPOSIT' as const, label: 'Deposit Request', icon: PlusCircle },
                     { id: 'WITHDRAWAL' as const, label: 'Withdrawal Request', icon: ArrowUpRight },
                     { id: 'TRANSACTION_HISTORY' as const, label: 'My History', icon: History },
+                    { id: 'COMMISSIONS' as const, label: 'My Commissions', icon: Percent },
                     { id: 'CUSTOMER_MANAGEMENT' as const, label: 'My Customers', icon: Users, count: myCustomers.length },
                     { id: 'RECEIVER_MANAGEMENT' as const, label: 'My Receivers', icon: Contact, count: filteredAgentReceivers.length },
                     { id: 'SYSTEM_RATES' as const, label: 'System Rates', icon: Settings },
@@ -8230,6 +8921,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                agentActiveTab === 'DEPOSIT' ? 'Deposit Request' :
                agentActiveTab === 'WITHDRAWAL' ? 'Withdrawal Request' :
                agentActiveTab === 'TRANSACTION_HISTORY' ? 'My History' :
+               agentActiveTab === 'COMMISSIONS' ? 'Commissions Breakdown' :
                agentActiveTab === 'CUSTOMER_MANAGEMENT' ? 'My Customers' :
                agentActiveTab === 'RECEIVER_MANAGEMENT' ? 'My Receivers' :
                agentActiveTab === 'SYSTEM_RATES' ? 'System Rates' : 'Feedback & Bug Report'}
@@ -8304,14 +8996,14 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                            </span>
                          </div>
                          <p className="text-[10px] text-slate-600 font-semibold leading-normal mt-1">{n.message}</p>
-                         {!n.read && (
+                         {true && (
                            <button
                              onClick={() => {
-                               setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
+                               setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: !item.read } : item));
                              }}
                              className="text-[8.5px] mt-1.5 text-slate-400 hover:text-indigo-600 font-black uppercase tracking-wider block"
                            >
-                             Mark Read
+                             {n.read ? "Mark Unread" : "Mark Read"}
                            </button>
                          )}
                        </div>
@@ -8594,73 +9286,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   </div>
                 </div>
 
-                {/* WebAuthn / Biometric Re-authentication Enrollment Widget */}
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-white space-y-5 relative overflow-hidden shadow-xl">
-                  {/* Subtle decorative tech patterns */}
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/15 rounded-full blur-2xl pointer-events-none" />
-                  
-                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-500/30">
-                        <Fingerprint size={18} />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-black text-white">Biometric Re-Auth</h4>
-                        <span className="text-[9px] text-indigo-400 uppercase font-black tracking-wider">WebAuthn TPM 2.0</span>
-                      </div>
-                    </div>
-                    {/* Status badge */}
-                    <div className="flex items-center gap-1.5 bg-slate-950/85 px-2 py-1 rounded-lg border border-slate-800">
-                      <span className={`w-2 h-2 rounded-full ${biometricEnrolled ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                      <span className="text-[10px] font-bold text-slate-300">
-                        {biometricEnrolled ? 'Registered' : 'On Demand'}
-                      </span>
-                    </div>
-                  </div>
 
-                  <p className="text-[10px] text-slate-400 leading-relaxed font-semibold">
-                    Protect cash outflows. Require dual-mode fingerprint/biometric cryptographic signature validation instantly when submitting transactions.
-                  </p>
-
-                  <div className="space-y-3 pt-1">
-                    {/* Enable Toggle Group */}
-                    <div className="flex items-center justify-between p-3.5 bg-slate-950/65 rounded-xl border border-slate-800">
-                      <div className="flex items-center gap-2">
-                        <Cpu size={14} className="text-indigo-400" />
-                        <span className="text-[10px] font-bold tracking-wider uppercase text-slate-200">Enforce Policy</span>
-                      </div>
-
-                      <div className="relative inline-flex items-center cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          checked={biometricEnabled}
-                          onChange={(e) => handleToggleBiometrics(e.target.checked)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-slate-900 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-800 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                      </div>
-                    </div>
-
-                    {/* Enrollment triggers */}
-                    <div className="space-y-2">
-                      <button
-                        type="button"
-                        onClick={handleEnrollBiometrics}
-                        className="w-full py-3 bg-indigo-600 hover:bg-slate-955 text-white font-extrabold text-[10.5px] uppercase tracking-widest rounded-xl transition-all border border-indigo-500/20 shadow-md flex items-center justify-center gap-2 cursor-pointer hover:border-slate-800"
-                      >
-                        <Scan size={13} />
-                        <span>{biometricEnrolled ? 'Re-enroll WebAuthn Device' : 'Register Secure Biometrics'}</span>
-                      </button>
-
-                      {biometricStatusMsg && (
-                        <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold rounded-xl animate-fade-in flex items-center gap-1.5 leading-relaxed">
-                          <CheckCircle2 size={12} className="shrink-0" />
-                          <span>{biometricStatusMsg}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
               </div>
             </div>
           </div> 
@@ -8789,10 +9415,16 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                    const isCompleted = tx.status === 'APPROVED' || tx.status === 'REJECTED';
                    const isChecked = selectedTxIds.includes(tx.id || '');
                    return (
-                     <div key={tx.id} className={cn(
-                       "p-6 flex items-center justify-between hover:bg-slate-50 transition-colors",
-                       isChecked && "bg-indigo-50/20"
-                     )}>
+                     <motion.div 
+                       key={tx.id} 
+                       initial={{ opacity: 0, y: 10 }}
+                       animate={{ opacity: 1, y: 0 }}
+                       transition={{ duration: 0.25, ease: "easeOut" }}
+                       className={cn(
+                         "p-6 flex items-center justify-between hover:bg-slate-50 transition-colors duration-500 ease-in-out",
+                         isChecked && "bg-indigo-50/20"
+                       )}
+                     >
                         <div className="flex items-center gap-3 md:gap-4">
                           {/* Selection Checkbox */}
                           <div className="w-5 flex items-center justify-center">
@@ -8830,13 +9462,22 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                             <p className={cn("font-black", tx.type === 'DEPOSIT' ? "text-emerald-600" : "text-slate-900")}>
                               {tx.type === 'DEPOSIT' ? '+' : '-'} ${tx.amount}
                             </p>
-                            <span className={cn(
-                              "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter",
-                              tx.status === 'PENDING' ? "bg-amber-100 text-amber-600" : 
-                              tx.status === 'APPROVED' ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-600"
-                            )}>
-                              {tx.status}
-                            </span>
+                            <motion.span 
+                              key={tx.status}
+                              initial={{ scale: 0.85, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ type: "spring", stiffness: 350, damping: 20 }}
+                              className={cn(
+                                "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter inline-flex items-center gap-1 shadow-sm/5",
+                                tx.status === 'PENDING' ? "bg-amber-100 text-amber-600" : 
+                                tx.status === 'APPROVED' ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-600"
+                              )}
+                            >
+                              {tx.status === 'APPROVED' && <Check size={10} className="shrink-0 stroke-[3]" />}
+                              {tx.status === 'REJECTED' && <X size={10} className="shrink-0 stroke-[3]" />}
+                              {tx.status === 'PENDING' && <Clock size={10} className="shrink-0 animate-pulse" />}
+                              <span>{tx.status}</span>
+                            </motion.span>
                           </div>
                           {isCompleted && (
                             <button
@@ -8849,7 +9490,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                             </button>
                           )}
                         </div>
-                     </div>
+                     </motion.div>
                    );
                 })}
                 {filteredTransactions.length === 0 && (
@@ -10578,7 +11219,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                  <div className="p-6 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-between">
                    <div>
                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">USD to Bangladeshi Taka</span>
@@ -10637,7 +11278,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   <button 
                     type="button"
                     onClick={() => setLclFeedbackSuccess('')}
-                    className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-slate-900 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm active:scale-95 font-sans"
+                    className="mt-2 px-4 py-2 bg-indigo-600 hover:bg-slate-905 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all cursor-pointer shadow-sm active:scale-95 font-sans"
                   >
                     Send Another Message
                   </button>
@@ -10738,6 +11379,117 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             </div>
           </div>
         )}
+
+        {agentActiveTab === 'COMMISSIONS' && (
+          <div className="space-y-8 animate-fade-in font-sans text-left">
+            {/* Header / Stats Panel */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white rounded-[2rem] border border-slate-200 p-6 flex items-center justify-between shadow-xs">
+                <div className="space-y-1 text-left">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">Total Commissions</span>
+                  <h4 className="text-2xl font-black text-slate-800 font-sans">
+                    ${(transactions.filter(t => t.type === 'WITHDRAWAL' && t.status === 'APPROVED').length * (settings?.agentCommission ?? 1.5)).toFixed(2)}
+                  </h4>
+                  <span className="text-[10px] font-semibold text-emerald-600 font-sans">Automatically added to balance</span>
+                </div>
+                <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+                  <Percent size={20} className="stroke-[2.5px]" />
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[2rem] border border-slate-200 p-6 flex items-center justify-between shadow-xs">
+                <div className="space-y-1 text-left">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">Withdrawal Events</span>
+                  <h4 className="text-2xl font-black text-slate-800 font-sans">
+                    {transactions.filter(t => t.type === 'WITHDRAWAL' && t.status === 'APPROVED').length} Approved
+                  </h4>
+                  <span className="text-[10px] font-semibold text-slate-400 font-sans">Eligible for agent commission</span>
+                </div>
+                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                  <History size={20} className="stroke-[2.5px]" />
+                </div>
+              </div>
+
+              <div className="bg-white rounded-[2rem] border border-slate-200 p-6 flex items-center justify-between shadow-xs">
+                <div className="space-y-1 text-left">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">Rate Per Event</span>
+                  <h4 className="text-2xl font-black text-emerald-600 font-sans">
+                    +${(settings?.agentCommission ?? 1.5).toFixed(2)}
+                  </h4>
+                  <span className="text-[10px] font-semibold text-slate-400 font-sans">Per approved customer cash-out</span>
+                </div>
+                <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center">
+                  <TrendingUp size={20} className="stroke-[2.5px]" />
+                </div>
+              </div>
+            </div>
+
+            {/* Commissions Breakdown Table */}
+            <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-xs">
+              <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div className="text-left">
+                  <h3 className="font-extrabold text-base text-slate-900 font-sans">Commissions Breakdown</h3>
+                  <p className="text-[11px] text-slate-400 font-medium font-sans">List of all withdrawals where you earned commissions as a facilitator</p>
+                </div>
+                <div className="px-3.5 py-1.5 bg-slate-100 text-slate-600 rounded-xl font-bold font-sans text-[10px] uppercase tracking-wider">
+                  Live Syncing ({transactions.filter(t => t.type === 'WITHDRAWAL' && t.status === 'APPROVED').length})
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100 font-sans">
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Transaction ID</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date & Time</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest font-sans">Customer ID / Name</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right font-sans">Withdrawal Amt</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right font-sans">Comm Rate</th>
+                      <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right font-sans">Commission Earned</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {transactions.filter(t => t.type === 'WITHDRAWAL' && t.status === 'APPROVED').length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-6 py-12 text-center text-slate-400 font-medium text-xs font-sans">
+                          No approved withdrawal transactions found. Earned commission logs will appear here.
+                        </td>
+                      </tr>
+                    ) : (
+                      transactions.filter(t => t.type === 'WITHDRAWAL' && t.status === 'APPROVED').map((tx) => {
+                        const txDate = tx.timestamp?.toDate 
+                          ? tx.timestamp.toDate() 
+                          : (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000) : (tx.timestamp ? new Date(tx.timestamp) : null));
+                        const formattedDate = txDate ? txDate.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
+                        const commissionEarned = settings?.agentCommission ?? 1.5;
+
+                        return (
+                          <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors font-sans text-xs">
+                            <td className="px-6 py-4 font-mono font-bold text-[11px] text-indigo-650">
+                              <span className="bg-indigo-50 px-2 py-1 rounded-lg select-all">{tx.id}</span>
+                            </td>
+                            <td className="px-6 py-4 text-slate-500 font-semibold">{formattedDate}</td>
+                            <td className="px-6 py-4 text-slate-700 font-bold">
+                              {tx.customerName || 'N/A'} 
+                              <span className="block text-[9px] text-slate-400 font-mono font-medium">{tx.customerId || 'No ID'}</span>
+                            </td>
+                            <td className="px-6 py-4 text-right font-semibold text-slate-700">${tx.amount.toFixed(2)}</td>
+                            <td className="px-6 py-4 text-right text-slate-500 font-medium">${commissionEarned.toFixed(2)} / flat</td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="font-extrabold text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-[11px] inline-block">
+                                +${commissionEarned.toFixed(2)}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Customer Details Modal */}
@@ -10770,7 +11522,17 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                      <div>
                        <span className="bg-indigo-650 text-[9px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full text-white inline-block mb-1.5 font-sans">Customer Profile</span>
                        <h4 className="font-extrabold text-lg text-white font-sans">{selectedCustomerForModal.name}</h4>
-                       <p className="text-[10px] text-indigo-200 font-mono mt-0.5">ID: {selectedCustomerForModal.uid}</p>
+                       <div className="flex items-center gap-1.5 mt-0.5">
+                         <p className="text-[10px] text-indigo-200 font-mono">ID: {selectedCustomerForModal.uid}</p>
+                         <button
+                           type="button"
+                           onClick={() => handleCopy(selectedCustomerForModal.uid, 'header-id')}
+                           className="p-1 hover:bg-white/10 rounded transition-all text-indigo-300 hover:text-white cursor-pointer inline-flex items-center"
+                           title="Copy ID"
+                         >
+                           {copiedKey === 'header-id' ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
+                         </button>
+                       </div>
                      </div>
                    </div>
                    <button 
@@ -10793,11 +11555,49 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                    <div className="p-5 bg-slate-50 border border-slate-200/60 rounded-2xl space-y-2">
                      <div className="flex justify-between items-center text-xs">
                        <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Mobile</span>
-                       <span className="font-semibold text-slate-700 font-mono">{selectedCustomerForModal.phone || 'N/A'}</span>
+                       <div className="flex items-center gap-1.5">
+                         <span className="font-semibold text-slate-700 font-mono">{selectedCustomerForModal.phone || 'N/A'}</span>
+                         {selectedCustomerForModal.phone && (
+                           <button
+                             type="button"
+                             onClick={() => handleCopy(selectedCustomerForModal.phone, 'phone')}
+                             className="p-1 text-slate-400 hover:text-indigo-650 hover:bg-slate-200/40 rounded transition-colors cursor-pointer inline-flex items-center"
+                             title="Copy Phone"
+                           >
+                             {copiedKey === 'phone' ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                           </button>
+                         )}
+                       </div>
                      </div>
                      <div className="flex justify-between items-center text-xs">
                        <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Email</span>
-                       <span className="font-semibold text-slate-700 truncate max-w-[150px]">{selectedCustomerForModal.email || 'N/A'}</span>
+                       <div className="flex items-center gap-1.5">
+                         <span className="font-semibold text-slate-700 truncate max-w-[150px]">{selectedCustomerForModal.email || 'N/A'}</span>
+                         {selectedCustomerForModal.email && (
+                           <button
+                             type="button"
+                             onClick={() => handleCopy(selectedCustomerForModal.email, 'email')}
+                             className="p-1 text-slate-400 hover:text-indigo-650 hover:bg-slate-200/40 rounded transition-colors cursor-pointer inline-flex items-center"
+                             title="Copy Email"
+                           >
+                             {copiedKey === 'email' ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                           </button>
+                         )}
+                       </div>
+                     </div>
+                     <div className="flex justify-between items-center text-xs">
+                       <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Customer ID</span>
+                       <div className="flex items-center gap-1.5 font-mono">
+                         <span className="font-semibold text-slate-700 max-w-[120px] truncate">{selectedCustomerForModal.uid}</span>
+                         <button
+                           type="button"
+                           onClick={() => handleCopy(selectedCustomerForModal.uid, 'uid')}
+                           className="p-1 text-slate-400 hover:text-indigo-650 hover:bg-slate-200/40 rounded transition-colors cursor-pointer inline-flex items-center"
+                           title="Copy ID"
+                         >
+                           {copiedKey === 'uid' ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                         </button>
+                       </div>
                      </div>
                      <div className="flex justify-between items-center text-xs">
                        <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Document No</span>
@@ -10827,7 +11627,13 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                        tx.senderId === selectedCustomerForModal.uid || 
                        tx.senderId === selectedCustomerForModal.phone
                      ).map(tx => (
-                       <div key={tx.id} className="py-3.5 flex items-center justify-between">
+                       <motion.div 
+                         key={tx.id} 
+                         initial={{ opacity: 0, y: 8 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         transition={{ duration: 0.25 }}
+                         className="py-3.5 flex items-center justify-between"
+                       >
                          <div className="flex items-center gap-3">
                            <div className={cn(
                              "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
@@ -10844,15 +11650,20 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                            <p className={cn("font-bold text-xs font-sans", tx.type === 'DEPOSIT' ? "text-emerald-600" : "text-slate-900")}>
                              {tx.type === 'DEPOSIT' ? '+' : '-'} ${tx.amount}
                            </p>
-                           <span className={cn(
+                           <motion.span 
+                             key={tx.status}
+                             initial={{ scale: 0.85, opacity: 0 }}
+                             animate={{ scale: 1, opacity: 1 }}
+                             transition={{ type: "spring", stiffness: 350, damping: 20 }}
+                             className={cn(
                              "text-[8px] px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter inline-block mt-0.5",
                              tx.status === 'PENDING' ? "bg-amber-50 text-amber-600" : 
                              tx.status === 'APPROVED' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
                            )}>
-                             {tx.status}
-                           </span>
+                             {tx.status === 'APPROVED' && <Check size={8} className="shrink-0 stroke-[3]" />}{tx.status === 'REJECTED' && <X size={8} className="shrink-0 stroke-[3]" />}{tx.status === 'PENDING' && <Clock size={8} className="shrink-0 animate-pulse" />}<span>{tx.status}</span>
+                           </motion.span>
                          </div>
-                       </div>
+                       </motion.div>
                      ))}
                      {transactions.filter(tx => 
                        tx.customerId === selectedCustomerForModal.uid || 
@@ -10932,18 +11743,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
            </div>
          )}
 
-         {/* Biometric authentication dialog popup */}
-        <BiometricAuthenticator 
-          isOpen={isBiometricPromptOpen}
-          onSuccess={(credId) => {
-            setIsBiometricPromptOpen(false);
-            handleSubmitTransaction(true); // Bypass biometrics
-          }}
-          onClose={() => setIsBiometricPromptOpen(false)}
-          authDetails={biometricAuthDetails}
-          agentProfile={profile}
-          isOffline={isOffline}
-        />
+
 
         {latestInvoice && (
            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -12302,7 +13102,13 @@ function CustomerDashboard({ profile, isOffline = false }: { profile: UserProfil
                   const isDeposit = tx.type === 'DEPOSIT';
                   
                   return (
-                    <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors">
+                    <motion.tr 
+                      key={tx.id} 
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="hover:bg-slate-50/50 transition-colors"
+                    >
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
                           <div className={cn(
@@ -12322,21 +13128,30 @@ function CustomerDashboard({ profile, isOffline = false }: { profile: UserProfil
                         <p className="text-[9.5px] font-bold text-slate-400 font-mono">ID: {tx.transitionId || tx.id}</p>
                       </td>
                       <td className="py-4 px-1 col-span-1">
-                        <span className={cn(
-                          "text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-widest text-[8px]",
-                          tx.status === 'APPROVED' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
-                          tx.status === 'PENDING' ? "bg-amber-50 text-amber-700 border border-amber-100" :
-                          "bg-rose-50 text-rose-700 border border-rose-100"
-                        )}>
-                          {tx.status}
-                        </span>
+                        <motion.span 
+                          key={tx.status}
+                          initial={{ scale: 0.85, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{ type: "spring", stiffness: 350, damping: 20 }}
+                          className={cn(
+                            "text-[9px] px-2 py-0.5 rounded-full font-extrabold uppercase tracking-widest text-[8px] inline-flex items-center gap-1 shadow-sm/5",
+                            tx.status === 'APPROVED' ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                            tx.status === 'PENDING' ? "bg-amber-50 text-amber-700 border border-amber-100" :
+                            "bg-rose-50 text-rose-700 border border-rose-100"
+                          )}
+                        >
+                          {tx.status === 'APPROVED' && <Check size={8} className="shrink-0 stroke-[3]" />}
+                          {tx.status === 'REJECTED' && <X size={8} className="shrink-0 stroke-[3]" />}
+                          {tx.status === 'PENDING' && <Clock size={8} className="shrink-0 animate-pulse" />}
+                          <span>{tx.status}</span>
+                        </motion.span>
                       </td>
                       <td className="py-4 px-4 text-right">
                         <p className={cn("font-black text-sm", isDeposit ? "text-emerald-600" : "text-slate-900")}>
                           {isDeposit ? '+' : '-'}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </p>
                       </td>
-                    </tr>
+                    </motion.tr>
                   );
                 })}
                 {filteredTxs.length === 0 && (

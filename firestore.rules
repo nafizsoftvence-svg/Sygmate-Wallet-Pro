@@ -8,8 +8,7 @@ service cloud.firestore {
 
     function isEmailAdmin() {
       return isSignedIn() && 
-        request.auth.token != null && 
-        'email' in request.auth.token && 
+        request.auth.token.email != null && 
         (request.auth.token.email == 'admin@walletpro.com' || request.auth.token.email == 'nafizsoftvence@gmail.com');
     }
 
@@ -18,6 +17,13 @@ service cloud.firestore {
       // Allows agents and admins to read profiles for customer lookups and approval listings safely
       allow read: if isSignedIn();
       allow create, update: if isSignedIn();
+      allow delete: if isSignedIn() && (
+        request.auth.token.email == 'admin@walletpro.com' ||
+        request.auth.token.email == 'nafizsoftvence@gmail.com' ||
+        isEmailAdmin() || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
+      );
     }
 
     // --- Transaction Collection Rules ---
@@ -50,13 +56,15 @@ service cloud.firestore {
     match /feedback/{feedbackId} {
       allow create: if isSignedIn();
       allow read: if isSignedIn() && (
+        isEmailAdmin() ||
         resource.data.userId == request.auth.uid || 
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
       );
       allow update, delete: if isSignedIn() && (
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN'
+        isEmailAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN')
       );
     }
   }
