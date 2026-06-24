@@ -78,6 +78,24 @@
         "timestamp": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "email", "description", "severity", "type", "status", "timestamp"]
+    },
+    "EmailLog": {
+      "title": "EmailLog",
+      "description": "Log of automated receipt emails sent to customers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "transactionId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "subject": { "type": "string" },
+        "body": { "type": "string" },
+        "pdfAttachedName": { "type": "string" },
+        "sentAt": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["SENT", "DELIVERED", "FAILED"] }
+      },
+      "required": ["id", "transactionId", "customerName", "customerEmail", "customerPhone", "subject", "body", "pdfAttachedName", "sentAt", "status"]
     }
   },
   "firestore": {
@@ -100,6 +118,10 @@
     "/feedback/{feedbackId}": {
       "schema": "Feedback",
       "description": "Collection of submitted feedback and bug reports"
+    },
+    "/email_logs/{logId}": {
+      "schema": "EmailLog",
+      "description": "Collection of sent receipt emails"
     }
   }
 }

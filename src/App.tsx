@@ -154,6 +154,19 @@ interface Receiver {
   rocketPhone?: string;
 }
 
+interface EmailLog {
+  id: string;
+  transactionId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  subject: string;
+  body: string;
+  pdfAttachedName: string;
+  sentAt: any;
+  status: 'SENT' | 'DELIVERED' | 'FAILED';
+}
+
 interface Transaction {
   id: string;
   type: TransactionType;
@@ -2266,6 +2279,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [pendingTransactions, setPendingTransactions] = useState<Transaction[]>([]);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [activeAgentSearchQuery, setActiveAgentSearchQuery] = useState('');
   const [activeAgentSort, setActiveAgentSort] = useState<'HIGHEST_BALANCE' | 'NEWEST_JOINED' | 'MOST_ACTIVE'>('HIGHEST_BALANCE');
@@ -3022,6 +3036,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         const localSettings: SystemSettings = JSON.parse(localStorage.getItem('sandbox_settings') || '{"usdToBdt": 120.5, "eurToBdt": 131.2, "commissionPercent": 2.5, "agentCommission": 1.5}');
         const localLogs = JSON.parse(localStorage.getItem('sandbox_system_logs') || '[]');
         const localFeedbacks = JSON.parse(localStorage.getItem('sandbox_feedbacks') || '[]');
+        const localEmailLogs = JSON.parse(localStorage.getItem('sandbox_email_logs') || '[]');
         
         setAgents(localUsers.filter(u => u.role === 'AGENT'));
         setCustomers(localUsers.filter(u => u.role === 'CUSTOMER'));
@@ -3030,6 +3045,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         setSettings(localSettings);
         setSystemLogs(localLogs);
         setFeedbacks(localFeedbacks);
+        setEmailLogs(localEmailLogs);
       };
       
       loadLocalData();
@@ -3043,38 +3059,72 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       };
     }
 
-    const qAgents = query(collection(db, 'users'), where('role', '==', 'AGENT'));
-    const qCust = query(collection(db, 'users'), where('role', '==', 'CUSTOMER'));
-    const qTx = query(collection(db, 'transactions'), where('status', '==', 'PENDING'), orderBy('timestamp', 'desc'));
-    const qSet = doc(db, 'settings', 'global');
-    const qAllTx = query(collection(db, 'transactions'), orderBy('timestamp', 'asc'));
-    const qLogs = query(collection(db, 'system_logs'), orderBy('timestamp', 'desc'));
-    const qFeedback = query(collection(db, 'feedback'), orderBy('timestamp', 'desc'));
+    const user = auth.currentUser;
 
-    const u1 = onSnapshot(qAgents, s => setAgents(s.docs.map(d => d.data() as UserProfile)), (err) => {
-      if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'users');
-    });
-    const u2 = onSnapshot(qCust, s => setCustomers(s.docs.map(d => d.data() as UserProfile)), (err) => {
-      if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'users');
-    });
-    const u3 = onSnapshot(qTx, s => setPendingTransactions(s.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))), (err) => {
-      if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'transactions');
-    });
+    if (!user) {
+      setAgents([]);
+      setCustomers([]);
+      setPendingTransactions([]);
+      setAllTransactions([]);
+      setSettings(null);
+      setSystemLogs([]);
+      setFeedbacks([]);
+      setEmailLogs([]);
+      return;
+    }
+
+    const unsubscribers: (() => void)[] = [];
+
+    // Global Settings is needed by all authenticated users
+    const qSet = doc(db, 'settings', 'global');
     const u4 = onSnapshot(qSet, s => s.exists() ? setSettings(s.data() as SystemSettings) : null, (err) => {
       if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'settings/global');
     });
-    const u5 = onSnapshot(qAllTx, s => setAllTransactions(s.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))), (err) => {
-      if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'transactions');
-    });
-    const u6 = onSnapshot(qLogs, s => setSystemLogs(s.docs.map(d => ({ ...d.data(), id: d.id } as any))), (err) => {
-      if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'system_logs');
-    });
-    const u7 = onSnapshot(qFeedback, s => setFeedbacks(s.docs.map(d => ({ ...d.data(), id: d.id } as any))), (err) => {
-      if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'feedback');
-    });
+    unsubscribers.push(u4);
 
-    return () => { u1(); u2(); u3(); u4(); u5(); u6(); u7(); };
-  }, [isOffline]);
+    // Admin-only collections
+    const isAdminUser = profile?.role === 'ADMIN' || 
+                        user.email === 'admin@walletpro.com' || 
+                        user.email === 'nafizsoftvence@gmail.com';
+
+    if (isAdminUser) {
+      const qAgents = query(collection(db, 'users'), where('role', '==', 'AGENT'));
+      const qCust = query(collection(db, 'users'), where('role', '==', 'CUSTOMER'));
+      const qTx = query(collection(db, 'transactions'), where('status', '==', 'PENDING'), orderBy('timestamp', 'desc'));
+      const qAllTx = query(collection(db, 'transactions'), orderBy('timestamp', 'asc'));
+      const qLogs = query(collection(db, 'system_logs'), orderBy('timestamp', 'desc'));
+      const qFeedback = query(collection(db, 'feedback'), orderBy('timestamp', 'desc'));
+      const qEmails = query(collection(db, 'email_logs'), orderBy('sentAt', 'desc'));
+
+      const u1 = onSnapshot(qAgents, s => setAgents(s.docs.map(d => d.data() as UserProfile)), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'users');
+      });
+      const u2 = onSnapshot(qCust, s => setCustomers(s.docs.map(d => d.data() as UserProfile)), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'users');
+      });
+      const u3 = onSnapshot(qTx, s => setPendingTransactions(s.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'transactions');
+      });
+      const u5 = onSnapshot(qAllTx, s => setAllTransactions(s.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'transactions');
+      });
+      const u6 = onSnapshot(qLogs, s => setSystemLogs(s.docs.map(d => ({ ...d.data(), id: d.id } as any))), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'system_logs');
+      });
+      const u7 = onSnapshot(qFeedback, s => setFeedbacks(s.docs.map(d => ({ ...d.data(), id: d.id } as any))), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'feedback');
+      });
+      const u8 = onSnapshot(qEmails, s => setEmailLogs(s.docs.map(d => ({ ...d.data(), id: d.id } as any))), (err) => {
+        if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'email_logs');
+      });
+
+      unsubscribers.push(u1, u2, u3, u5, u6, u7, u8);
+    }
+
+    return () => {
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, [isOffline, profile]);
 
   useEffect(() => {
     if (settings) {
@@ -3205,6 +3255,62 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     await updateDoc(doc(db, 'users', uid), { status: 'REJECTED' });
   };
 
+  const sendAutomatedEmailReceipt = async (tx: Transaction) => {
+    try {
+      // Find customer email
+      const customerProfile = customers.find(u => u.uid === tx.customerId || u.uid === tx.senderId || u.phone === tx.senderId);
+      const emailAddress = customerProfile?.email || `${tx.senderName?.toLowerCase().replace(/\s+/g, '') || 'customer'}@walletpro.com`;
+      
+      const isWd = tx.type === 'WITHDRAWAL';
+      const bdtAmount = (tx.amount * (tx.conversionRate || 120.5)).toFixed(2);
+      
+      const subject = `[WalletPro] Transaction Approved & Receipt: #${tx.transitionId || tx.id}`;
+      const body = `Dear ${tx.senderName || 'Customer'},\n\nWe are pleased to inform you that your withdrawal request has been approved by the Admin.\n\nTransaction Details:\n- Transaction ID: ${tx.transitionId || tx.id}\n- Type: WALLET WITHDRAWAL\n- Method/Channel: ${tx.method || 'N/A'}\n- Amount: BDT ${bdtAmount} ($${tx.amount.toFixed(2)})\n- Date: ${tx.timestamp ? (tx.timestamp.toDate ? tx.timestamp.toDate().toLocaleString() : (tx.timestamp.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleString() : new Date(tx.timestamp).toLocaleString())) : new Date().toLocaleString()}\n\nA PDF copy of your receipt has been generated and sent to your email successfully.\n\nBest regards,\nThe WalletPro Team`;
+      const pdfAttachedName = `${isWd ? 'Withdrawal' : 'Deposit'}_Invoice_${tx.transitionId || tx.id}.pdf`;
+
+      if (isOffline) {
+        const localEmailLogs: EmailLog[] = JSON.parse(localStorage.getItem('sandbox_email_logs') || '[]');
+        const newEmailLog: EmailLog = {
+          id: `email_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          transactionId: tx.id || '',
+          customerName: tx.senderName || 'Unregistered',
+          customerEmail: emailAddress,
+          customerPhone: tx.senderId || 'N/A',
+          subject,
+          body,
+          pdfAttachedName,
+          sentAt: Date.now(),
+          status: 'SENT'
+        };
+        localEmailLogs.unshift(newEmailLog);
+        localStorage.setItem('sandbox_email_logs', JSON.stringify(localEmailLogs));
+        setEmailLogs(localEmailLogs);
+      } else {
+        await addDoc(collection(db, 'email_logs'), {
+          transactionId: tx.id || '',
+          customerName: tx.senderName || 'Unregistered',
+          customerEmail: emailAddress,
+          customerPhone: tx.senderId || 'N/A',
+          subject,
+          body,
+          pdfAttachedName,
+          sentAt: serverTimestamp(),
+          status: 'SENT'
+        });
+      }
+      
+      // Write system log
+      await writeSystemLog(isOffline, 'RATE_UPDATE', `Automated email receipt sent to ${emailAddress} for Tx #${tx.transitionId || tx.id}`, {
+        uid: 'system',
+        name: 'Automated Emailer',
+        role: 'SYSTEM'
+      });
+      
+    } catch (err) {
+      console.error('Failed to send automated email:', err);
+    }
+  };
+
   const handleTxAction = async (tx: Transaction, status: TransactionStatus, rejectMsg?: string) => {
     if (isOffline) {
       const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
@@ -3238,6 +3344,13 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         name: 'System Admin',
         role: 'ADMIN'
       });
+
+      if (status === 'APPROVED' && tx.type === 'WITHDRAWAL') {
+        const approvedTxObj = updatedTransactions.find(t => t.id === tx.id);
+        if (approvedTxObj) {
+          sendAutomatedEmailReceipt(approvedTxObj);
+        }
+      }
 
       setAgents(localUsers.filter(u => u.role === 'AGENT'));
       setCustomers(localUsers.filter(u => u.role === 'CUSTOMER'));
@@ -3275,6 +3388,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       name: 'System Admin',
       role: 'ADMIN'
     });
+
+    if (status === 'APPROVED' && tx.type === 'WITHDRAWAL') {
+      sendAutomatedEmailReceipt({ ...tx, status: 'APPROVED' });
+    }
   };
 
   const handleDownloadPDFReport = () => {
@@ -6443,6 +6560,20 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [receiverBankAccountNumber, setReceiverBankAccountNumber] = useState('');
   const [receiverAccountName, setReceiverAccountName] = useState('');
 
+  // Print Preview Modal States
+  const [showPrintPreviewModal, setShowPrintPreviewModal] = useState(false);
+  const [previewTxType, setPreviewTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('58mm');
+  const [receiptFont, setReceiptFont] = useState<'mono' | 'sans'>('mono');
+  const [receiptFontSize, setReceiptFontSize] = useState<'normal' | 'large'>('normal');
+  const [receiptTitle, setReceiptTitle] = useState('OFFICIAL RECEIPT');
+  const [receiptIncludeTime, setReceiptIncludeTime] = useState(true);
+  const [receiptCustomFooter, setReceiptCustomFooter] = useState('Thank you for choosing our service!');
+  const [includeCustomerPhone, setIncludeCustomerPhone] = useState(true);
+  const [includeAgentId, setIncludeAgentId] = useState(true);
+  const [printSettingsTab, setPrintSettingsTab] = useState<'layout' | 'options'>('layout');
+  const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
+
   // Receiver Management Active States
   const [agentReceivers, setAgentReceivers] = useState<Receiver[]>([]);
   const [selectedMgmtCustomerFilter, setSelectedMgmtCustomerFilter] = useState<string>('ALL');
@@ -6531,8 +6662,12 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     
     // Agent Info Column
     doc.text(`Agent Name: ${tx.agentName || profile.name}`, marginX, currentY);
-    doc.text(`Agent ID: ${tx.agentId || profile.uid}`, marginX, currentY + 5);
-    doc.text(`Role: AGENT PARTNER`, marginX, currentY + 10);
+    if (includeAgentId) {
+      doc.text(`Agent ID: ${tx.agentId || profile.uid}`, marginX, currentY + 5);
+      doc.text(`Role: AGENT PARTNER`, marginX, currentY + 10);
+    } else {
+      doc.text(`Role: AGENT PARTNER`, marginX, currentY + 5);
+    }
 
     // Right Column: Transaction stats
     const formattedDate = tx.timestamp 
@@ -6560,7 +6695,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     doc.setFontSize(9);
     doc.text('Description / Details', marginX + 5, currentY + 6.5);
     doc.text('Type', 90, currentY + 6.5);
-    doc.text(isWd ? 'Customer (Phone)' : 'Ref/Transition ID', 115, currentY + 6.5);
+    doc.text(isWd ? (includeCustomerPhone ? 'Customer (Phone)' : 'Customer') : 'Ref/Transition ID', 115, currentY + 6.5);
     doc.text('Amount (USD)', 165, currentY + 6.5);
 
     currentY += 10;
@@ -6576,7 +6711,10 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       doc.text('WITHDRAWAL', 90, currentY + 7.5);
       doc.setFont('Helvetica', 'normal');
       doc.setFontSize(8.5);
-      doc.text(`${tx.senderName || 'Unregistered'} (${tx.senderId || 'N/A'})`, 115, currentY + 5.5);
+      const customerStr = includeCustomerPhone 
+        ? `${tx.senderName || 'Unregistered'} (${tx.senderId || 'N/A'})`
+        : `${tx.senderName || 'Unregistered'}`;
+      doc.text(customerStr, 115, currentY + 5.5);
       doc.setFontSize(7);
       doc.setTextColor(148, 163, 184);
       doc.text(`Rec: ${tx.receiverName || 'N/A'} (${tx.receiverPhone || 'N/A'})`, 115, currentY + 9);
@@ -8439,6 +8577,119 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     }
   };
 
+  const handleOpenPrintPreview = (type: 'DEPOSIT' | 'WITHDRAWAL') => {
+    setFormError('');
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setFormError('Please enter a valid amount greater than 0.');
+      return;
+    }
+
+    if (type === 'DEPOSIT') {
+      if (!txId.trim()) {
+        setFormError('Please provide the transaction reference / Transition ID.');
+        return;
+      }
+    } else {
+      if (!senderId.trim()) {
+        setFormError('Customer ID/Phone is required for withdrawals.');
+        return;
+      }
+      if (!senderName.trim()) {
+        setFormError('Customer Name is required for withdrawals.');
+        return;
+      }
+      if (!receiverName.trim()) {
+        setFormError('Receiver Name is required.');
+        return;
+      }
+      if (!receiverPhone.trim()) {
+        setFormError('Receiver Mobile/Account Number is required.');
+        return;
+      }
+      if (!method) {
+        setFormError('Please select a payment channel/method.');
+        return;
+      }
+    }
+
+    setPreviewTxType(type);
+    setShowPrintPreviewModal(true);
+  };
+
+  const handlePrintThermalReceipt = () => {
+    const receiptEl = document.getElementById('thermal-receipt-content');
+    if (!receiptEl) return;
+    
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`
+        <html>
+          <head>
+            <title>Print Thermal Receipt</title>
+            <style>
+              @page {
+                margin: 0;
+              }
+              body {
+                font-family: ${receiptFont === 'mono' ? '"JetBrains Mono", monospace, "Courier New"' : '"Inter", sans-serif'};
+                padding: 10px;
+                margin: 0;
+                width: ${receiptWidth === '58mm' ? '54mm' : '76mm'};
+                background: #fff;
+                color: #000;
+                font-size: ${receiptFontSize === 'large' ? '12px' : '10px'};
+                line-height: 1.3;
+              }
+              .center { text-align: center; }
+              .right { text-align: right; }
+              .bold { font-weight: bold; }
+              .dashed-line {
+                border-top: 1px dashed #000;
+                margin: 6px 0;
+              }
+              .flex-between {
+                display: flex;
+                justify-content: space-between;
+              }
+              .header-title {
+                font-size: ${receiptFontSize === 'large' ? '16px' : '13px'};
+                font-weight: bold;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+              }
+              .mt-2 { margin-top: 8px; }
+              .mb-2 { margin-bottom: 8px; }
+              .barcode {
+                border: 1px solid #000;
+                padding: 4px;
+                text-align: center;
+                font-size: 8px;
+                margin: 10px auto;
+                width: 80%;
+                letter-spacing: 2px;
+              }
+            </style>
+          </head>
+          <body onload="window.print(); setTimeout(function(){ window.frameElement.remove(); }, 1000)">
+            ${receiptEl.innerHTML}
+          </body>
+        </html>
+      `);
+      doc.close();
+    }
+  };
+
   const handleSubmitTransaction = async (bypassBiometrics: boolean = false) => {
     try {
       setFormError('');
@@ -8448,7 +8699,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         return;
       }
       if (!method.trim()) {
-        setFormError(showForm === 'WITHDRAWAL' ? 'Please search and select a Receiver count to load the payout method.' : 'Please specify the transaction method (e.g., Bank, bKash, Nagad).');
+        setFormError(showForm === 'WITHDRAWAL' ? 'Please specify the receiver payment channel/method.' : 'Please specify the transaction method (e.g., Bank, bKash, Nagad).');
         return;
       }
 
@@ -8506,7 +8757,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         }
 
         if (!receiverName.trim() || !receiverPhone.trim()) {
-          setFormError('Both Receiver Name and Mobile Number are required for withdrawals. Please lookup or register a receiver.');
+          setFormError('Both Receiver Name and Mobile Number are required for withdrawals.');
           return;
         }
         if (profile.balance < numAmount) {
@@ -10672,12 +10923,22 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   </motion.div>
                 )}
 
-                <button 
-                  onClick={handleSubmitTransaction}
-                  className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-slate-900 transition-all shadow-md active:translate-y-px cursor-pointer"
-                >
-                  Submit for Approval
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => handleOpenPrintPreview('DEPOSIT')}
+                    className="py-5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl font-black uppercase text-sm tracking-widest transition-all shadow-sm cursor-pointer border border-slate-200 flex items-center justify-center gap-2"
+                  >
+                    <Printer size={16} />
+                    <span>Print Preview</span>
+                  </button>
+                  <button 
+                    onClick={handleSubmitTransaction}
+                    className="py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-slate-900 transition-all shadow-md active:translate-y-px cursor-pointer"
+                  >
+                    Submit for Approval
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -10783,6 +11044,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     )}
                   </div>
                 </div>
+
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2 block">Customer Name</label>
                   <input 
@@ -10793,121 +11055,64 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   />
                 </div>
 
-                {/* Receiver Search & Registration Section */}
+                {/* Simplified Receiver Info Section */}
                 <div className="space-y-4 pt-1 bg-slate-55 p-5 rounded-3xl border border-slate-200">
-                  <div>
-                    <span className="text-[9px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">Step 2: Receiver Info</span>
-                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight mt-1 mb-3 font-sans">Receiver Search & Verification</h4>
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-1">
+                    <div>
+                      <span className="text-[9px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">Step 2: Receiver Info</span>
+                      <h4 className="text-xs font-black text-slate-800 uppercase tracking-tight mt-1.5 font-sans">Receiver Details</h4>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAddReceiverModal(true);
+                        setAddReceiverError('');
+                        setAddReceiverSuccess('');
+                      }}
+                      className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer select-none"
+                    >
+                      <Plus size={14} className="text-indigo-600" />
+                      <span>Add Receiver</span>
+                    </button>
                   </div>
 
-                  <div>
-                    <label className="text-xs font-bold text-slate-800 flex justify-between items-center mb-1.5 font-sans">
-                      <span>Receiver (Name or ID)</span>
-                      <span className="text-[10px] text-indigo-600 font-extrabold font-mono bg-indigo-50 px-2 py-0.5 rounded-full">
-                        {customerReceivers.length} {senderId ? 'saved' : 'total'} receiver{customerReceivers.length !== 1 ? 's' : ''}
-                      </span>
-                    </label>
-
-                    <div className="flex flex-wrap gap-1 mb-3.5 bg-slate-100 p-1.5 rounded-xl border border-slate-150">
-                      {(['ALL', 'Bank', 'Bkash', 'Nagad', 'Rocket'] as const).map(m => {
-                        const count = m === 'ALL'
-                          ? customerReceivers.length
-                          : customerReceivers.filter(r => r?.method === m || (r?.methods && r.methods.includes(m))).length;
-                        const isActive = receiverMethodFilter === m;
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => {
-                              setReceiverMethodFilter(m);
-                              setShowReceiverSuggestions(true);
-                            }}
-                            className={`flex-1 min-w-[50px] px-2 py-1 rounded-lg text-[10px] font-bold font-sans transition-all flex items-center justify-center gap-1.5 select-none ${
-                              isActive
-                                ? 'bg-indigo-600 text-white shadow-sm'
-                                : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-150'
-                            }`}
-                          >
-                            <span>{m === 'ALL' ? 'All' : m}</span>
-                            <span className={`text-[9px] font-mono px-1 rounded-md ${
-                              isActive ? 'bg-indigo-500 text-indigo-50' : 'bg-slate-100 text-slate-500'
-                            }`}>
-                              {count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
                     <div className="relative">
-                      <input
-                        value={receiverIdSearch}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setReceiverIdSearch(val);
-                          setShowReceiverSuggestions(true);
-                          
-                          // Clear selected receiver state if the input value has been changed/modified
-                          const curSelText = receiverName ? `${receiverName} (${receiverPhone})` : receiverId;
-                          if (val !== curSelText) {
-                            setReceiverId('');
-                            setReceiverName('');
-                            setReceiverPhone('');
-                            setReceiverMethod('');
-                            setReceiverBankName('');
-                            setReceiverBankBranch('');
-                            setReceiverBankHolderName('');
-                            setReceiverBankAccountNumber('');
-                            setReceiverAccountName('');
-                          }
-                        }}
-                        onFocus={() => setShowReceiverSuggestions(true)}
-                        onBlur={() => {
-                          setTimeout(() => {
-                            setShowReceiverSuggestions(false);
-                            handleLookupReceiver();
-                          }, 250);
-                        }}
-                        className="w-full p-3.5 pr-24 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-xs font-semibold"
-                        placeholder={
-                          receiverMethodFilter === 'ALL' 
-                            ? "Search Receiver ID, Name, or Mobile" 
-                            : `Search ${receiverMethodFilter} Receiver ID, Name, or Mobile`
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={handleLookupReceiver}
-                        disabled={isSearchingReceiver || !receiverIdSearch}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 disabled:opacity-55 disabled:hover:bg-indigo-50 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 min-w-[64px]"
-                      >
-                        {isSearchingReceiver ? (
-                          <span className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin inline-block ms-1"></span>
-                        ) : (
-                          <>
-                            <Search size={12} />
-                            <span>Verify</span>
-                          </>
-                        )}
-                      </button>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1 font-sans">Receiver Name</label>
+                      <div className="relative">
+                        <input 
+                          type="text"
+                          value={receiverName} 
+                          onChange={e => {
+                            setReceiverName(e.target.value);
+                            setShowReceiverSuggestions(true);
+                          }} 
+                          onFocus={() => setShowReceiverSuggestions(true)}
+                          onBlur={() => {
+                            // Delay slightly so that click on suggestion can be processed
+                            setTimeout(() => setShowReceiverSuggestions(false), 250);
+                          }}
+                          className="w-full pl-9 pr-3.5 py-3.5 bg-white border border-slate-200 rounded-xl outline-none text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all"
+                          placeholder="Search Name, ID or Mobile..."
+                        />
+                        <Search size={14} className="absolute left-3.5 top-4.5 text-slate-400 pointer-events-none" />
+                      </div>
 
-                      {showReceiverSuggestions && receiverIdSearch.trim().length >= 2 && (
+                      {showReceiverSuggestions && receiverName.trim().length >= 1 && (
                         <div className="absolute left-0 right-0 z-30 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl mt-1.5 shadow-xl py-1 text-left">
                           {(() => {
-                            const term = receiverIdSearch.toLowerCase().trim();
-                            const filtered = customerReceivers.filter(r => {
-                              // Filter by method if restricted
-                              if (receiverMethodFilter !== 'ALL' && r.method !== receiverMethodFilter && !(r.methods && r.methods.includes(receiverMethodFilter))) {
-                                return false;
-                              }
-                              if (!term) return true;
-                              return isReceiverMatch(r, term);
-                            });
+                            const term = receiverName.toLowerCase().trim();
+                            // Merge and filter customer/agent receivers
+                            const allRecs = [
+                              ...customerReceivers,
+                              ...agentReceivers.filter(ar => !customerReceivers.some(cr => cr.id === ar.id))
+                            ];
+                            const filtered = allRecs.filter(r => isReceiverMatch(r, term));
                             
                             if (filtered.length === 0) {
                               return (
                                 <div className="px-4 py-3 text-xs text-slate-500 italic">
-                                  No {receiverMethodFilter !== 'ALL' ? receiverMethodFilter : ''} receivers found matching "{receiverIdSearch}". Click "Add Receiver" to register a new one.
+                                  No receivers found matching "{receiverName}". Continue typing to enter manually.
                                 </div>
                               );
                             }
@@ -10921,7 +11126,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                                   selectReceiver(rec);
                                   setShowReceiverSuggestions(false);
                                 }}
-                                className="w-full px-4 py-2.5 hover:bg-slate-50 flex flex-col gap-0.5 border-b border-slate-50 last:border-b-0 text-left transition-all"
+                                className="w-full px-4 py-2.5 hover:bg-slate-50 flex flex-col gap-0.5 border-b border-slate-50 last:border-b-0 text-left transition-all cursor-pointer cursor-pointer"
                               >
                                 <div className="flex items-center justify-between">
                                   <div className="font-bold text-xs text-slate-800">{rec.name || 'Unnamed Receiver'}</div>
@@ -10953,122 +11158,26 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         </div>
                       )}
                     </div>
-                  </div>
-
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddReceiverModal(true);
-                        setAddReceiverError('');
-                        setAddReceiverSuccess('');
-                      }}
-                      className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer select-none"
-                    >
-                      <Plus size={14} className="text-indigo-600" />
-                      <span>Add Receiver</span>
-                    </button>
-                  </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-800 block mb-1.5 font-sans">
-                      Selected Receiver
-                    </label>
-                    <input
-                      type="text"
-                      value={receiverName && receiverPhone ? `${receiverName} (${receiverPhone})` : ''}
-                      placeholder="No receiver selected"
-                      readOnly
-                      disabled
-                      className="w-full p-3.5 bg-slate-100 rounded-xl border border-slate-200 outline-none text-slate-500 text-xs cursor-not-allowed font-medium font-sans"
-                    />
-                  </div>
-
-                  {receiverId && (
-                    <div className="p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-3.5 mt-2 animate-fade-in text-left">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-indigo-700 tracking-wider font-sans">
-                          Modify Payment Channel / Info
-                        </span>
-                        {receiverUpdateSuccess && (
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded animate-bounce">
-                            ✓ {receiverUpdateSuccess}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] text-zinc-500 font-semibold leading-normal font-sans">
-                        To add another payment channel (Bank / Mobile Wallet) or update existing details for <strong className="text-indigo-650">{receiverName}</strong>, change the method switcher below, fill in the fields, and click "Update & Save".
-                      </p>
-                      
-                      <div className="grid grid-cols-2 gap-3.5">
-                        <div>
-                          <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest block mb-1 font-sans">Active Method</label>
-                          <select
-                            value={method}
-                            onChange={e => {
-                              const newM = e.target.value;
-                              setMethod(newM);
-                              setReceiverMethod(newM);
-                              
-                              const existing = customerReceivers.find(r => r.id === receiverId) || agentReceivers.find(r => r.id === receiverId);
-                              if (existing) {
-                                if (newM === 'Bank') {
-                                  setReceiverBankName(existing.bankName || '');
-                                  setReceiverBankBranch(existing.bankBranch || '');
-                                  setReceiverBankHolderName(existing.bankHolderName || '');
-                                  setReceiverBankAccountNumber(existing.bankAccountNumber || '');
-                                  setReceiverPhone(existing.bankPhone || existing.phone || '');
-                                } else {
-                                  if (newM === 'Bkash') {
-                                    setReceiverAccountName(existing.bkashAccountName || existing.accountName || '');
-                                    setReceiverPhone(existing.bkashPhone || existing.phone || '');
-                                  } else if (newM === 'Nagad') {
-                                    setReceiverAccountName(existing.nagadAccountName || existing.accountName || '');
-                                    setReceiverPhone(existing.nagadPhone || existing.phone || '');
-                                  } else if (newM === 'Rocket') {
-                                    setReceiverAccountName(existing.rocketAccountName || existing.accountName || '');
-                                    setReceiverPhone(existing.rocketPhone || existing.phone || '');
-                                  }
-                                }
-                              }
-                            }}
-                            className="w-full p-2.5 bg-white border border-slate-200 rounded-xl text-xs font-extrabold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                          >
-                            {(() => {
-                              const activeRec = customerReceivers.find(r => r.id === receiverId) || agentReceivers.find(r => r.id === receiverId);
-                              const activeMethods = activeRec?.methods || (activeRec?.method ? [activeRec.method] : []);
-                              return (
-                                <>
-                                  <option value="Bank">Bank Deposit {activeMethods.includes('Bank') ? '✓ (Configured)' : '(New)'}</option>
-                                  <option value="Bkash">bKash {activeMethods.includes('Bkash') ? '✓ (Configured)' : '(New)'}</option>
-                                  <option value="Nagad">Nagad {activeMethods.includes('Nagad') ? '✓ (Configured)' : '(New)'}</option>
-                                  <option value="Rocket">Rocket {activeMethods.includes('Rocket') ? '✓ (Configured)' : '(New)'}</option>
-                                </>
-                              );
-                            })()}
-                          </select>
-                        </div>
-
-                        <div className="flex items-end">
-                          <button
-                            type="button"
-                            onClick={handleUpdateReceiverProfile}
-                            disabled={isUpdatingReceiver}
-                            className="w-full p-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-55 text-white font-extrabold text-[10px] rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer uppercase tracking-wider"
-                          >
-                            {isUpdatingReceiver ? (
-                              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                            ) : (
-                              <>
-                                <Save size={11} />
-                                <span>Update & Save</span>
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
+                    
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1 font-sans">Payment Channel / Method</label>
+                      <select
+                        value={method}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setMethod(val);
+                          setReceiverMethod(val);
+                        }}
+                        className="w-full p-3.5 bg-white border border-slate-200 rounded-xl outline-none text-slate-800 text-xs font-semibold focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all cursor-pointer"
+                      >
+                        <option value="">Select Method / Channel</option>
+                        <option value="Bank">Bank Deposit</option>
+                        <option value="Bkash">bKash</option>
+                        <option value="Nagad">Nagad</option>
+                        <option value="Rocket">Rocket</option>
+                      </select>
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {method === 'Bank' && (
@@ -11195,12 +11304,22 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   </motion.div>
                 )}
 
-                <button 
-                  onClick={handleSubmitTransaction}
-                  className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-slate-900 transition-all shadow-md active:translate-y-px cursor-pointer"
-                >
-                  Submit for Approval
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <button 
+                    type="button"
+                    onClick={() => handleOpenPrintPreview('WITHDRAWAL')}
+                    className="py-5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-2xl font-black uppercase text-sm tracking-widest transition-all shadow-sm cursor-pointer border border-slate-200 flex items-center justify-center gap-2"
+                  >
+                    <Printer size={16} />
+                    <span>Print Preview</span>
+                  </button>
+                  <button 
+                    onClick={handleSubmitTransaction}
+                    className="py-5 bg-indigo-600 text-white rounded-2xl font-black uppercase text-sm tracking-widest hover:bg-slate-900 transition-all shadow-md active:translate-y-px cursor-pointer"
+                  >
+                    Submit for Approval
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -11893,6 +12012,319 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
              </motion.div>
            </div>
          )}
+
+          {showPrintPreviewModal && (
+            <div className="fixed inset-0 z-55 flex items-center justify-center p-4 md:p-6 select-none font-sans">
+              {/* Backdrop */}
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowPrintPreviewModal(false)}
+                className="absolute inset-0 bg-slate-900/65 backdrop-blur-sm shadow-2xl"
+              />
+
+              {/* Modal Container */}
+              <motion.div 
+                initial={{ opacity: 0, y: 35, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                className="relative bg-white rounded-3xl shadow-2xl border border-slate-150 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden z-10"
+              >
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2.5 bg-indigo-50 text-indigo-650 rounded-2xl">
+                      <Printer size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">Thermal Receipt Print Preview</h3>
+                      <p className="text-[11px] text-slate-500 font-semibold">Format and style your receipt before printing to standard roll printers</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => setShowPrintPreviewModal(false)}
+                    className="p-2 hover:bg-slate-150 text-slate-400 hover:text-slate-700 rounded-full transition-colors cursor-pointer"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Split Content Area */}
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 bg-slate-50/20">
+                  
+                  {/* Left Column: Customizing & Styling Options */}
+                  <div className="space-y-5 text-left pr-0 md:pr-4">
+                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-150 pb-2">
+                      Receipt Roll Settings
+                    </h4>
+
+                    {/* Width Toggle */}
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                        Paper Width Size
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['58mm', '80mm'] as const).map(w => (
+                          <button
+                            key={w}
+                            type="button"
+                            onClick={() => setReceiptWidth(w)}
+                            className={cn(
+                              "py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer",
+                              receiptWidth === w 
+                                ? "bg-indigo-600 text-white border-transparent shadow-sm"
+                                : "bg-white text-slate-650 border-slate-200 hover:bg-slate-50"
+                            )}
+                          >
+                            {w === '58mm' ? '58mm (2-inch Roll)' : '80mm (3-inch Roll)'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Font Family Selection */}
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                        Font Family Face
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['mono', 'sans'] as const).map(f => (
+                          <button
+                            key={f}
+                            type="button"
+                            onClick={() => setReceiptFont(f)}
+                            className={cn(
+                              "py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer",
+                              receiptFont === f 
+                                ? "bg-indigo-600 text-white border-transparent shadow-sm"
+                                : "bg-white text-slate-650 border-slate-200 hover:bg-slate-50"
+                            )}
+                          >
+                            {f === 'mono' ? 'Courier Monospace' : 'System Sans-Serif'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Font Size Selector */}
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                        Font Type Size
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(['normal', 'large'] as const).map(s => (
+                          <button
+                            key={s}
+                            type="button"
+                            onClick={() => setReceiptFontSize(s)}
+                            className={cn(
+                              "py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer",
+                              receiptFontSize === s 
+                                ? "bg-indigo-600 text-white border-transparent shadow-sm"
+                                : "bg-white text-slate-650 border-slate-200 hover:bg-slate-50"
+                            )}
+                          >
+                            {s === 'normal' ? 'Standard (Compact)' : 'Large Bold'}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Header Input */}
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                        Receipt Title Header
+                      </label>
+                      <input 
+                        type="text"
+                        value={receiptTitle}
+                        onChange={e => setReceiptTitle(e.target.value)}
+                        placeholder="OFFICIAL RECEIPT"
+                        className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-xs text-slate-800 font-bold focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all"
+                      />
+                    </div>
+
+                    {/* Timestamp Checkbox */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <input 
+                        type="checkbox"
+                        id="receipt-include-time"
+                        checked={receiptIncludeTime}
+                        onChange={e => setReceiptIncludeTime(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 bg-white border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                      />
+                      <label htmlFor="receipt-include-time" className="text-xs font-bold text-slate-700 cursor-pointer select-none font-sans">
+                        Include current date & timestamp
+                      </label>
+                    </div>
+
+                    {/* Footer Input */}
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                        Custom Footer Note
+                      </label>
+                      <textarea 
+                        rows={2}
+                        value={receiptCustomFooter}
+                        onChange={e => setReceiptCustomFooter(e.target.value)}
+                        placeholder="e.g. Please verify wallet balance"
+                        className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-xs text-slate-800 font-medium focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right Column: Live Thermal Print Simulator */}
+                  <div className="flex flex-col items-center justify-center bg-slate-100/80 p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-inner overflow-y-auto max-h-[500px]">
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-3 select-none">
+                      Printer Simulator Canvas
+                    </span>
+
+                    {/* Standard Thermal roll wrapper */}
+                    <div 
+                      id="thermal-receipt-content" 
+                      className={cn(
+                        "p-6 bg-white text-black border border-zinc-300 shadow-lg transition-all",
+                        receiptFont === 'mono' ? 'font-mono' : 'font-sans',
+                        receiptWidth === '58mm' ? 'w-[260px]' : 'w-[350px]'
+                      )}
+                    >
+                      <div className="text-center">
+                        <div className={cn("font-black uppercase tracking-wider mb-1 leading-tight", receiptFontSize === 'large' ? 'text-sm' : 'text-xs')}>
+                          {receiptTitle}
+                        </div>
+                        <div className="text-[9px] font-bold tracking-tight">
+                          OFFICIAL AGENT TERMINAL
+                        </div>
+                        <div className="text-[8px] mt-1 font-medium">
+                          Agent Name: {profile.name || 'Agent Point'}
+                        </div>
+                        <div className="text-[8px] font-medium">
+                          Agent ID: {profile.uid || 'N/A'}
+                        </div>
+                        <div className="text-[8px] font-medium">
+                          Mobile: {profile.phone || 'N/A'}
+                        </div>
+                      </div>
+
+                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                      <div className="space-y-0.5 text-[8px] leading-tight">
+                        <div className="flex justify-between">
+                          <span>TRANSACTION:</span>
+                          <span className="font-bold uppercase">{previewTxType} REQUEST</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>STATUS:</span>
+                          <span className="font-bold">PENDING FINALIZATION</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>TIMESTAMP:</span>
+                          <span>{receiptIncludeTime ? new Date().toLocaleString() : new Date().toLocaleDateString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>REFERENCE:</span>
+                          <span className="font-bold font-mono">{previewTxType === 'DEPOSIT' ? (txId || 'DEP-PENDING') : (txId || 'WD-PENDING')}</span>
+                        </div>
+                      </div>
+
+                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                      {previewTxType === 'DEPOSIT' ? (
+                        <div className="space-y-1 text-[8px] leading-tight">
+                          <div className="flex justify-between font-bold">
+                            <span>DEPOSIT AMOUNT:</span>
+                            <span>${parseFloat(amount).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Payment Method:</span>
+                            <span className="uppercase font-bold">{method || 'Bank'}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-1 text-[8px] leading-tight">
+                          <div>
+                            <span className="font-bold">CUSTOMER (SENDER)</span>
+                            <div className="pl-1.5 font-mono text-[7px]">{senderName} ({senderId})</div>
+                          </div>
+                          <div className="mt-1">
+                            <span className="font-bold">RECEIVER (RECIPIENT)</span>
+                            <div className="pl-1.5 font-mono text-[7px]">{receiverName} ({receiverPhone})</div>
+                            <div className="pl-1.5 font-mono text-[7px]">Method: {method}</div>
+                            {method === 'Bank' ? (
+                              <div className="pl-1.5 text-[7px] italic">
+                                Bank: {receiverBankName} - A/C: {receiverBankAccountNumber}
+                              </div>
+                            ) : (
+                              receiverAccountName && (
+                                <div className="pl-1.5 text-[7px] italic">
+                                  Holder Name: {receiverAccountName}
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                      <div className="space-y-0.5 text-[8px] leading-tight">
+                        <div className="flex justify-between font-black text-[10px]">
+                          <span>TOTAL VALUE:</span>
+                          <span>${parseFloat(amount).toFixed(2)}</span>
+                        </div>
+                        {previewTxType === 'WITHDRAWAL' ? (
+                          <>
+                            <div className="flex justify-between">
+                              <span>CONV. RATE:</span>
+                              <span>1 USD = {settings.usdToBdt} BDT</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-[9px] mt-0.5">
+                              <span>PAYOUT (BDT):</span>
+                              <span>৳{(parseFloat(amount) * settings.usdToBdt).toFixed(2)}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="flex justify-between">
+                            <span>SERVICE FEE:</span>
+                            <span>$0.00 (FREE)</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                      <div className="text-center text-[7px] space-y-1.5 leading-tight">
+                        {receiptCustomFooter && <p className="italic">{receiptCustomFooter}</p>}
+                        <div className="barcode border border-black py-1.5 px-1 max-w-[120px] mx-auto text-[6px] tracking-[2px] font-mono select-none">
+                          ||||||| | |||| | ||||||
+                          <div className="text-[5px] tracking-normal font-sans mt-0.5 uppercase font-bold">*{previewTxType === 'DEPOSIT' ? (txId || 'DEP') : (txId || 'WD')}*</div>
+                        </div>
+                        <p className="text-[6px] text-zinc-500 font-sans mt-0.5">Wallet Pro terminal. Secure receipt slip.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer Controls */}
+                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                  <button 
+                    onClick={() => setShowPrintPreviewModal(false)}
+                    className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs transition-colors font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={handlePrintThermalReceipt}
+                    className="px-6 py-2.5 bg-zinc-900 hover:bg-black text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
+                  >
+                    <Printer size={14} /> 
+                    <span>Print Thermal Receipt</span>
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
 
           {showAddReceiverModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
