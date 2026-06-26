@@ -28,6 +28,7 @@ import {
   GitMerge,
   Briefcase,
   Upload,
+  Globe,
   Eye,
   EyeOff,
   Download,
@@ -59,6 +60,8 @@ import {
   Percent
 } from 'lucide-react';
 import WalletPluginWidget from './components/WalletPluginWidget';
+import { ProfitCalculator } from './components/ProfitCalculator';
+import { LiveCurrencyRates } from './components/LiveCurrencyRates';
 import QRCode from 'qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -208,6 +211,7 @@ interface SystemSettings {
   enableMonthlyAutoReports?: boolean;
   monthlyAutoReportDay?: number;
   monthlyAutoReportFormat?: string;
+  logoUrl?: string;
 }
 
 interface SystemLog {
@@ -1027,20 +1031,26 @@ export default function App() {
             <div className="flex items-center gap-2">
               <h1 className="font-bold text-base leading-tight tracking-tight">WalletPro</h1>
               {isOffline ? (
-                <div className="flex items-center gap-1.5 bg-amber-50 text-amber-800 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-amber-200 shadow-sm select-none">
-                  <span className="relative flex h-1.5 w-1.5">
+                <div className="flex items-center gap-1.5 bg-amber-50 text-amber-800 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-amber-200 shadow-sm select-none whitespace-nowrap">
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
                   </span>
-                  <span>Sandbox Mode (Local Synced)</span>
+                  <span>
+                    <span className="hidden sm:inline">Sandbox Mode (Local Synced)</span>
+                    <span className="inline sm:hidden">Sandbox</span>
+                  </span>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-emerald-150 shadow-sm select-none">
-                  <span className="relative flex h-1.5 w-1.5">
+                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-emerald-150 shadow-sm select-none whitespace-nowrap">
+                  <span className="relative flex h-1.5 w-1.5 shrink-0">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                   </span>
-                  <span>Cloud Live (Firestore Synced)</span>
+                  <span>
+                    <span className="hidden sm:inline">Cloud Live (Firestore Synced)</span>
+                    <span className="inline sm:hidden">Live</span>
+                  </span>
                 </div>
               )}
             </div>
@@ -2377,7 +2387,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
   // Admin Custom Tabs support
-  const [adminActiveTab, setAdminActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_APPROVALS' | 'TRANSACTION_HISTORY' | 'AGENT_REQUESTS' | 'ACTIVE_AGENTS' | 'SYSTEM_CONTROL'>('OVERVIEW');
+  const [adminActiveTab, setAdminActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_APPROVALS' | 'TRANSACTION_HISTORY' | 'AGENT_REQUESTS' | 'ACTIVE_AGENTS' | 'SYSTEM_CONTROL' | 'LIVE_CURRENCY'>('OVERVIEW');
   const [adminSystemSubTab, setAdminSystemSubTab] = useState<'RATES' | 'DELETE_DATA' | 'SYSTEM_LOGS' | 'FEEDBACK_REPORTS'>('RATES');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [adminDelSearch, setAdminDelSearch] = useState('');
@@ -2497,6 +2507,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   };
 
   const [txConfirmAction, setTxConfirmAction] = useState<{ tx: Transaction, action: TransactionStatus } | null>(null);
+  const [actionSuccessStatus, setActionSuccessStatus] = useState<'APPROVED' | 'REJECTED' | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [selectedAgentDetails, setSelectedAgentDetails] = useState<UserProfile | null>(null);
   const [processingTxId, setProcessingTxId] = useState<string | null>(null);
@@ -2577,6 +2588,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [agentCommissionInput, setAgentCommissionInput] = useState('1.5');
   const [invoiceContactInput, setInvoiceContactInput] = useState('');
   const [invoiceDisclaimerInput, setInvoiceDisclaimerInput] = useState('');
+  const [logoInput, setLogoInput] = useState('');
   const [enableMonthlyAutoReports, setEnableMonthlyAutoReports] = useState(false);
   const [monthlyAutoReportDay, setMonthlyAutoReportDay] = useState('1');
   const [monthlyAutoReportFormat, setMonthlyAutoReportFormat] = useState('PDF_AND_SUMMARY');
@@ -3134,6 +3146,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       setAgentCommissionInput((settings.agentCommission ?? 1.5).toString());
       setInvoiceContactInput(settings.invoiceContactInfo ?? 'Tel: +1 (555) 0199 | Email: billing@walletpro.com | Web: www.walletpro.com');
       setInvoiceDisclaimerInput(settings.invoiceDisclaimer ?? 'Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference.');
+      setLogoInput(settings.logoUrl ?? '');
       setEnableMonthlyAutoReports(settings.enableMonthlyAutoReports ?? false);
       setMonthlyAutoReportDay((settings.monthlyAutoReportDay ?? 1).toString());
       setMonthlyAutoReportFormat(settings.monthlyAutoReportFormat ?? 'PDF_AND_SUMMARY');
@@ -3162,6 +3175,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         agentCommission: agComm,
         invoiceContactInfo: invoiceContactInput.trim() || 'Tel: +1 (555) 0199 | Email: billing@walletpro.com | Web: www.walletpro.com',
         invoiceDisclaimer: invoiceDisclaimerInput.trim() || 'Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference.',
+        logoUrl: logoInput.trim(),
         enableMonthlyAutoReports,
         monthlyAutoReportDay: parseInt(monthlyAutoReportDay) || 1,
         monthlyAutoReportFormat,
@@ -3605,6 +3619,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             { id: 'TRANSACTION_HISTORY' as const, label: 'History', icon: History },
             { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
             { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
+            { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
             { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
           ].map((t) => {
             const Icon = t.icon;
@@ -3684,6 +3699,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     { id: 'TRANSACTION_HISTORY' as const, label: 'History', icon: History },
                     { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
                     { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
+                    { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
                     { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
                   ].map((t) => {
                     const Icon = t.icon;
@@ -3733,28 +3749,88 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       {/* Content Column */}
       <div className="flex-1 min-w-0 space-y-6">
         {/* Mobile Nav Header Row */}
-        <div className="md:hidden flex items-center justify-between bg-white border border-slate-200 p-4 rounded-3xl shadow-sm">
+        <div className="md:hidden flex items-center justify-between bg-white border border-slate-200 p-3 px-4 rounded-3xl shadow-sm gap-2">
           <button
             onClick={() => setMobileSidebarOpen(true)}
-            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+            className="p-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
           >
             <List size={16} />
             <span className="text-[10px] font-black uppercase tracking-wider">NAV MENU</span>
           </button>
           
-          <div className="text-right">
-            <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block bg-indigo-50/50 px-2 py-0.5 rounded-md inline-block">
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block bg-indigo-50/70 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
               {adminActiveTab === 'OVERVIEW' ? 'Overview' :
-               adminActiveTab === 'TRANSACTION_APPROVALS' ? 'Transaction Approvals' :
-               adminActiveTab === 'TRANSACTION_HISTORY' ? 'Transaction History' :
-               adminActiveTab === 'AGENT_REQUESTS' ? 'Agent Requests' :
-               adminActiveTab === 'ACTIVE_AGENTS' ? 'Active Agents' : 'System Control'}
+               adminActiveTab === 'TRANSACTION_APPROVALS' ? 'Approvals' :
+               adminActiveTab === 'TRANSACTION_HISTORY' ? 'History' :
+               adminActiveTab === 'AGENT_REQUESTS' ? 'Requests' :
+               adminActiveTab === 'ACTIVE_AGENTS' ? 'Agents' : 'System Control'}
             </span>
+            {/* Mobile Alerts Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowBellDropdown(!showBellDropdown)}
+                className="p-2 text-slate-400 hover:text-slate-700 transition-all bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer relative shrink-0"
+                title="Alert Center"
+              >
+                <Bell 
+                  size={15} 
+                  className={cn(
+                    notifications.filter(n => !n.read).length > 0 ? "text-indigo-600 animate-pulse" : "text-slate-400"
+                  )} 
+                />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full text-[8px] font-black h-4 px-1 flex items-center justify-center min-w-[16px]">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+              {showBellDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setShowBellDropdown(false)} />
+                  <div className="absolute right-0 mt-3 w-72 sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4 space-y-3 max-h-96 overflow-y-auto text-left">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest font-mono">Alerts ({notifications.filter(n => !n.read).length} unread)</span>
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                          }}
+                          className="text-[9px] text-indigo-600 font-bold uppercase hover:underline cursor-pointer"
+                        >
+                          Mark Read
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {notifications.length === 0 ? (
+                        <div className="py-8 text-center space-y-2">
+                          <Bell className="mx-auto text-slate-300 stroke-1" size={24} />
+                          <p className="text-[9px] text-slate-400 uppercase tracking-widest font-black leading-none">All clear</p>
+                        </div>
+                      ) : (
+                        notifications.map((n, i) => (
+                          <div key={i} className={cn("p-2.5 rounded-xl text-[11px] border transition-all text-left", n.read ? "bg-slate-50/50 border-slate-100 text-slate-500" : "bg-indigo-50/30 border-indigo-100 text-slate-800 font-medium")}>
+                            <div className="flex justify-between items-start gap-1">
+                              <span className="text-[8px] font-black uppercase tracking-wider text-indigo-600">{n.title}</span>
+                              <span className="text-[8px] font-semibold text-slate-400 font-mono">
+                                {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-600 font-semibold leading-normal mt-1">{n.message}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Top Header Row with Profile / Greeting / Bell Notification */}
-        <div className="flex items-center justify-between bg-white border border-slate-200 p-4.5 rounded-3xl shadow-sm">
+        <div className="hidden md:flex items-center justify-between bg-white border border-slate-200 p-4.5 rounded-3xl shadow-sm">
           <div className="flex items-center gap-3">
             <span className="text-[9px] bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-xl font-extrabold font-mono tracking-widest uppercase">Admin Mode</span>
             <h1 className="text-sm font-black text-slate-800 hidden xs:block">Welcome back, {profile.name}</h1>
@@ -4616,26 +4692,26 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                      hidden: { opacity: 0, y: 15 },
                      show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 100, damping: 15 } }
                    }}
-                   className="p-6 border-b border-slate-50 flex items-center justify-between hover:bg-slate-50 transition-all"
+                   className="p-6 border-b border-slate-50 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-slate-50 transition-all text-left"
                  >
-                   <div className="flex items-center gap-4">
+                   <div className="flex items-start sm:items-center gap-4">
                       <div className={cn(
-                        "w-12 h-12 rounded-2xl flex items-center justify-center",
+                        "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
                         tx.type === 'DEPOSIT' ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-600"
                       )}>
                         {tx.type === 'DEPOSIT' ? <ArrowDownLeft size={24} /> : <ArrowUpRight size={24} />}
                       </div>
-                      <div>
-                        <p className="font-bold">{tx.type} • ${tx.amount}</p>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-slate-850">{tx.type} • ${tx.amount}</p>
                         <p className="text-xs text-slate-500">
                           Agent: <span className="font-bold text-slate-800">{getAgentDisplayName(tx.agentId, tx.agentName)}</span>
                         </p>
                         <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <span className="text-[10px] uppercase font-bold text-indigo-600 tracking-widest">Transaction ID: {tx.transitionId}</span>
+                          <span className="text-[10px] uppercase font-bold text-indigo-600 tracking-widest break-all">Transaction ID: {tx.transitionId}</span>
                           {tx.transitionFile && (
                             <button
                               onClick={() => setViewDoc(tx.transitionFile!)}
-                              className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold text-[10px] transition-all"
+                              className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold text-[10px] transition-all cursor-pointer"
                             >
                               <FileText size={11} /> View Slip/Doc
                             </button>
@@ -4643,12 +4719,12 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         </div>
                       </div>
                    </div>
-                   <div className="flex gap-3">
+                   <div className="flex flex-wrap gap-2 w-full lg:w-auto justify-start lg:justify-end">
                      <button 
                        onClick={() => setSelectedTxDetails(tx)}
                         disabled={processingTxId !== null}
                         className={cn(
-                          "px-3.5 py-2 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer",
+                          "flex-1 lg:flex-none justify-center px-3.5 py-2 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer",
                           processingTxId !== null ? "bg-slate-50 text-slate-400 cursor-not-allowed" : "bg-slate-100 hover:bg-slate-200"
                         )}
                      >
@@ -4658,7 +4734,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         disabled={processingTxId !== null}
                         onClick={() => setTxConfirmAction({ tx, action: 'APPROVED' })} 
                         className={cn(
-                          "px-3.5 py-2 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
+                          "flex-1 lg:flex-none justify-center px-3.5 py-2 text-white rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
                           processingTxId === tx.id && txConfirmAction?.action === 'APPROVED' ? "bg-indigo-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
                         )}
                       >
@@ -4671,7 +4747,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         disabled={processingTxId !== null}
                         onClick={() => setTxConfirmAction({ tx, action: 'REJECTED' })} 
                         className={cn(
-                          "px-3.5 py-2 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
+                          "flex-1 lg:flex-none justify-center px-3.5 py-2 text-slate-500 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
                           processingTxId === tx.id && txConfirmAction?.action === 'REJECTED' ? "bg-slate-200 cursor-not-allowed" : "bg-slate-100 hover:bg-slate-200"
                         )}
                       >
@@ -4807,6 +4883,104 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                           placeholder="e.g. Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference."
                           className="text-xs font-medium text-slate-700 bg-transparent outline-none focus:ring-0 w-full resize-none mt-1"
                         />
+                      </div>
+
+                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-3">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">System Logo (Invoice & Print Output)</label>
+                        <p className="text-[11px] text-slate-500 leading-normal">
+                          Provide a custom image URL, choose a default preset, or upload an image file (PNG/JPG) to show as your custom business brand in all print sheets and PDF statements.
+                        </p>
+                        
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          {/* URL input */}
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Logo Image URL</span>
+                            <input 
+                              type="text" 
+                              value={logoInput} 
+                              onChange={(e) => setLogoInput(e.target.value)}
+                              placeholder="e.g. https://example.com/logo.png"
+                              className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-xl px-3 py-2 w-full outline-none focus:border-indigo-500 focus:ring-0"
+                            />
+                          </div>
+
+                          {/* Image File Upload */}
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Upload Custom Image File</span>
+                            <div className="relative">
+                              <input 
+                                type="file" 
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onloadend = () => {
+                                      setLogoInput(reader.result as string);
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="hidden"
+                                id="logo-file-upload"
+                              />
+                              <label 
+                                htmlFor="logo-file-upload"
+                                className="text-xs font-extrabold text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/70 border border-indigo-150 px-3 py-2.5 rounded-xl block text-center cursor-pointer transition-all active:scale-98"
+                              >
+                                {logoInput && logoInput.startsWith('data:image/') ? 'Change Uploaded File' : 'Choose Local File...'}
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Preset Logos */}
+                        <div className="space-y-1.5 pt-1.5">
+                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Or Use Brand Presets</span>
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { name: 'WalletPro Emerald', url: 'https://images.unsplash.com/photo-1598153346810-860daa814c4b?w=128&auto=format&fit=crop&q=60' },
+                              { name: 'Global Remit Blue', url: 'https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=128&auto=format&fit=crop&q=60' },
+                              { name: 'Apex Gold Coins', url: 'https://images.unsplash.com/photo-1622630998477-20aa696ecb05?w=128&auto=format&fit=crop&q=60' },
+                              { name: 'Clear Slate Circle', url: 'https://images.unsplash.com/photo-1557683316-973673baf926?w=128&auto=format&fit=crop&q=60' }
+                            ].map((preset) => (
+                              <button
+                                key={preset.name}
+                                type="button"
+                                onClick={() => setLogoInput(preset.url)}
+                                className={cn(
+                                  "px-2.5 py-1.5 bg-white border rounded-xl text-[10px] font-bold text-slate-600 flex items-center gap-1.5 transition-all hover:bg-slate-50 cursor-pointer",
+                                  logoInput === preset.url ? "border-indigo-600 text-indigo-600 bg-indigo-50/20" : "border-slate-200"
+                                )}
+                              >
+                                <img src={preset.url} alt={preset.name} className="w-4 h-4 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+                                <span>{preset.name}</span>
+                              </button>
+                            ))}
+                            {logoInput && (
+                              <button
+                                type="button"
+                                onClick={() => setLogoInput('')}
+                                className="px-2.5 py-1.5 bg-rose-50 border border-rose-100 hover:bg-rose-100 hover:border-rose-200 rounded-xl text-[10px] font-black text-rose-600 transition-all cursor-pointer"
+                              >
+                                Clear Logo
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Current Logo Preview */}
+                        {logoInput && (
+                          <div className="pt-2 border-t border-slate-150/60 flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-xl border border-slate-200 overflow-hidden bg-white flex items-center justify-center shrink-0">
+                              <img src={logoInput} alt="Custom Business Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-extrabold text-slate-700">Logo Active Preview</p>
+                              <p className="text-[9px] font-semibold text-slate-400 font-mono truncate">{logoInput.startsWith('data:') ? 'Custom Base64 Image Data' : logoInput}</p>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -5356,6 +5530,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         </div>
       )}
 
+      {adminActiveTab === 'LIVE_CURRENCY' && (
+        <LiveCurrencyRates />
+      )}
+
         {/* Agent Registration details Viewer Modal */}
         <AnimatePresence>
           {selectedAgentDetails && (
@@ -5708,109 +5886,173 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                 transition={{ type: "spring", stiffness: 300, damping: 28 }}
                 className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-md w-full p-6 z-10 space-y-4 text-left"
               >
-                <div className="flex items-center gap-3">
-                  <div className={cn(
-                     "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold",
-                     txConfirmAction.action === 'APPROVED' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
-                  )}>
-                    {txConfirmAction.action === 'APPROVED' ? <Check size={20} /> : <X size={20} />}
+                {actionSuccessStatus ? (
+                  <div className="flex flex-col items-center justify-center py-8 space-y-4 font-sans">
+                    <div className={cn(
+                      "w-20 h-20 rounded-full flex items-center justify-center relative border shadow-xs animate-pulse-subtle",
+                      actionSuccessStatus === 'APPROVED' ? "bg-emerald-50 border-emerald-150 text-emerald-600" : "bg-rose-50 border-rose-150 text-rose-600"
+                    )}>
+                      {actionSuccessStatus === 'APPROVED' ? (
+                        <motion.svg
+                          className="w-10 h-10 text-emerald-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <motion.path
+                            initial={{ pathLength: 0 }}
+                            animate={{ pathLength: 1 }}
+                            transition={{ duration: 0.6, ease: "easeOut" }}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </motion.svg>
+                      ) : (
+                        <motion.svg
+                          className="w-10 h-10 text-rose-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={3}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <motion.path
+                            initial={{ pathLength: 0 }}
+                            animate={{ pathLength: 1 }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </motion.svg>
+                      )}
+                    </div>
+                    <div className="text-center space-y-1">
+                      <h4 className="font-extrabold text-slate-900 text-lg uppercase tracking-tight">
+                        Request {actionSuccessStatus === 'APPROVED' ? 'Approved' : 'Rejected'}!
+                      </h4>
+                      <p className="text-xs text-slate-500 font-semibold leading-relaxed">
+                        The {txConfirmAction?.tx?.type || 'withdrawal'} request of ${txConfirmAction?.tx?.amount} was successfully processed.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-extrabold text-slate-900 uppercase tracking-tight text-sm">
-                      Confirm Admin Action
-                    </h4>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                      financial safety verification
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <div className={cn(
+                         "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-bold",
+                         txConfirmAction.action === 'APPROVED' ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                      )}>
+                        {txConfirmAction.action === 'APPROVED' ? <Check size={20} /> : <X size={20} />}
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-slate-900 uppercase tracking-tight text-sm">
+                          Confirm Admin Action
+                        </h4>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                          financial safety verification
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <p className="text-xs text-slate-600 leading-relaxed uppercase tracking-wider font-semibold">
+                      Are you sure you want to <span className={cn("font-black", txConfirmAction.action === 'APPROVED' ? "text-emerald-700" : "text-rose-700")}>{txConfirmAction.action.toLowerCase()}</span> this <span className="font-bold">{txConfirmAction.tx.type}</span> request for <span className="font-black text-slate-900">${txConfirmAction.tx.amount}</span>?
                     </p>
-                  </div>
-                </div>
-                
-                <p className="text-xs text-slate-600 leading-relaxed uppercase tracking-wider font-semibold">
-                  Are you sure you want to <span className={cn("font-black", txConfirmAction.action === 'APPROVED' ? "text-emerald-700" : "text-rose-700")}>{txConfirmAction.action.toLowerCase()}</span> this <span className="font-bold">{txConfirmAction.tx.type}</span> request for <span className="font-black text-slate-900">${txConfirmAction.tx.amount}</span>?
-                </p>
 
-                <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
-                  <div className="flex justify-between">
-                    <span>Transaction ID:</span>
-                    <span className="text-slate-700 font-bold">{txConfirmAction.tx.transitionId || txConfirmAction.tx.id}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Sender/Customer:</span>
-                    <span className="text-slate-700 font-bold">{txConfirmAction.tx.customerName || txConfirmAction.tx.senderName || 'N/A'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Transfer Method:</span>
-                    <span className="text-slate-700 font-bold">{txConfirmAction.tx.method || 'Bank Transfer'}</span>
-                  </div>
-                </div>
+                    <div className="bg-slate-50 border border-slate-100 p-4 rounded-xl space-y-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-relaxed">
+                      <div className="flex justify-between">
+                        <span>Transaction ID:</span>
+                        <span className="text-slate-700 font-bold">{txConfirmAction.tx.transitionId || txConfirmAction.tx.id}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Sender/Customer:</span>
+                        <span className="text-slate-700 font-bold">{txConfirmAction.tx.customerName || txConfirmAction.tx.senderName || 'N/A'}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Transfer Method:</span>
+                        <span className="text-slate-700 font-bold">{txConfirmAction.tx.method || 'Bank Transfer'}</span>
+                      </div>
+                    </div>
 
-                {txConfirmAction.action === 'REJECTED' && (
-                  <div className="space-y-1.5 animate-fade-in pt-1">
-                    <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest block font-mono">
-                      Reason for Rejection <span className="text-rose-600">*</span>
-                    </label>
-                    <textarea
-                      disabled={processingTxId !== null}
-                      value={rejectionReason}
-                      onChange={(e) => setRejectionReason(e.target.value)}
-                      placeholder="Please specify why this transaction is being rejected..."
-                      className="w-full p-3.5 bg-rose-50/50 border border-rose-100 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all text-slate-800 leading-relaxed placeholder:text-slate-400/80"
-                      rows={3}
-                    />
-                  </div>
+                    {txConfirmAction.action === 'REJECTED' && (
+                      <div className="space-y-1.5 animate-fade-in pt-1">
+                        <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest block font-mono">
+                          Reason for Rejection <span className="text-rose-600">*</span>
+                        </label>
+                        <textarea
+                          disabled={processingTxId !== null}
+                          value={rejectionReason}
+                          onChange={(e) => setRejectionReason(e.target.value)}
+                          placeholder="Please specify why this transaction is being rejected..."
+                          className="w-full p-3.5 bg-rose-50/50 border border-rose-100 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all text-slate-800 leading-relaxed placeholder:text-slate-400/80"
+                          rows={3}
+                        />
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 justify-end pt-2">
+                      <button
+                        disabled={processingTxId !== null}
+                        onClick={() => {
+                          setTxConfirmAction(null);
+                          setRejectionReason('');
+                        }}
+                        className={cn(
+                          "px-4 py-2 font-bold text-xs rounded-xl transition-all cursor-pointer",
+                          processingTxId !== null ? "bg-slate-50 text-slate-400 cursor-not-allowed" : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                        )}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        disabled={processingTxId !== null || (txConfirmAction.action === 'REJECTED' && !rejectionReason.trim())}
+                        onClick={async () => {
+                          const currentAction = txConfirmAction;
+                          setProcessingTxId(currentAction.tx.id);
+                          try {
+                            await handleTxAction(currentAction.tx, currentAction.action, currentAction.action === 'REJECTED' ? rejectionReason.trim() : undefined);
+                            // If the details view is open, close it
+                            if (selectedTxDetails?.id === currentAction.tx.id) {
+                              setSelectedTxDetails(null);
+                            }
+                            
+                            // Trigger the success state for morphing animation
+                            setActionSuccessStatus(currentAction.action as 'APPROVED' | 'REJECTED');
+                            
+                            // Keep modal open for 1.8 seconds to display drawing path animation
+                            setTimeout(() => {
+                              setTxConfirmAction(null);
+                              setActionSuccessStatus(null);
+                              setRejectionReason('');
+                            }, 1800);
+                          } catch (err) {
+                            console.error(err);
+                            setTxConfirmAction(null);
+                          } finally {
+                            setProcessingTxId(null);
+                          }
+                        }}
+                        className={cn(
+                          "px-5 py-2 text-xs font-bold rounded-xl transition-all shadow-md active:scale-95 text-white cursor-pointer flex items-center gap-1.5 justify-center min-w-[125px]",
+                          (processingTxId !== null || (txConfirmAction.action === 'REJECTED' && !rejectionReason.trim())) ? "opacity-50 cursor-not-allowed" : "",
+                          txConfirmAction.action === 'APPROVED' 
+                            ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/10" 
+                            : "bg-rose-600 hover:bg-rose-700 shadow-rose-600/10"
+                        )}
+                      >
+                        {processingTxId === txConfirmAction.tx.id ? (
+                          <>
+                            <Loader2 className="animate-spin" size={12} />
+                            <span>Processing...</span>
+                          </>
+                        ) : (
+                          <span>Yes, {txConfirmAction.action === 'APPROVED' ? 'Approve' : 'Reject'}</span>
+                        )}
+                      </button>
+                    </div>
+                  </>
                 )}
-
-                <div className="flex items-center gap-3 justify-end pt-2">
-                  <button
-                    disabled={processingTxId !== null}
-                    onClick={() => {
-                      setTxConfirmAction(null);
-                      setRejectionReason('');
-                    }}
-                    className={cn(
-                      "px-4 py-2 font-bold text-xs rounded-xl transition-all cursor-pointer",
-                      processingTxId !== null ? "bg-slate-50 text-slate-400 cursor-not-allowed" : "bg-slate-100 hover:bg-slate-200 text-slate-700"
-                    )}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    disabled={processingTxId !== null || (txConfirmAction.action === 'REJECTED' && !rejectionReason.trim())}
-                    onClick={async () => {
-                      const currentAction = txConfirmAction;
-                      setProcessingTxId(currentAction.tx.id);
-                      try {
-                        await handleTxAction(currentAction.tx, currentAction.action, currentAction.action === 'REJECTED' ? rejectionReason.trim() : undefined);
-                        // If the details view is open, close it
-                        if (selectedTxDetails?.id === currentAction.tx.id) {
-                          setSelectedTxDetails(null);
-                        }
-                        setTxConfirmAction(null);
-                        setRejectionReason('');
-                      } catch (err) {
-                        console.error(err);
-                      } finally {
-                        setProcessingTxId(null);
-                      }
-                    }}
-                    className={cn(
-                      "px-5 py-2 text-xs font-bold rounded-xl transition-all shadow-md active:scale-95 text-white cursor-pointer flex items-center gap-1.5 justify-center min-w-[125px]",
-                      (processingTxId !== null || (txConfirmAction.action === 'REJECTED' && !rejectionReason.trim())) ? "opacity-50 cursor-not-allowed" : "",
-                      txConfirmAction.action === 'APPROVED' 
-                        ? "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/10" 
-                        : "bg-rose-600 hover:bg-rose-700 shadow-rose-600/10"
-                    )}
-                  >
-                    {processingTxId === txConfirmAction.tx.id ? (
-                      <>
-                        <Loader2 className="animate-spin" size={12} />
-                        <span>Processing...</span>
-                      </>
-                    ) : (
-                      <span>Yes, {txConfirmAction.action === 'APPROVED' ? 'Approve' : 'Reject'}</span>
-                    )}
-                  </button>
-                </div>
               </motion.div>
             </div>
           )}
@@ -6108,7 +6350,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 }
 
 function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, isOffline?: boolean, key?: string }) {
-  const [agentActiveTab, setAgentActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_HISTORY' | 'CUSTOMER_MANAGEMENT' | 'RECEIVER_MANAGEMENT' | 'SYSTEM_RATES' | 'DEPOSIT' | 'WITHDRAWAL' | 'FEEDBACK' | 'COMMISSIONS'>('OVERVIEW');
+  const [agentActiveTab, setAgentActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_HISTORY' | 'CUSTOMER_MANAGEMENT' | 'RECEIVER_MANAGEMENT' | 'SYSTEM_RATES' | 'DEPOSIT' | 'WITHDRAWAL' | 'FEEDBACK' | 'COMMISSIONS' | 'LIVE_CURRENCY'>('OVERVIEW');
   const [agentMobileSidebarOpen, setAgentMobileSidebarOpen] = useState(false);
   const [showForm, setShowForm] = useState<'DEPOSIT' | 'WITHDRAWAL' | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -6195,7 +6437,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 
   // Quick Add Receiver to Customer States
   const [quickAddReceiverCustomer, setQuickAddReceiverCustomer] = useState<UserProfile | null>(null);
-  const [quickNewReceiverMethod, setQuickNewReceiverMethod] = useState('Bank');
+  const [quickNewReceiverMethod, setQuickNewReceiverMethod] = useState('');
   const [quickNewReceiverBankName, setQuickNewReceiverBankName] = useState('');
   const [quickNewReceiverBankBranch, setQuickNewReceiverBankBranch] = useState('');
   const [quickNewReceiverBankHolderName, setQuickNewReceiverBankHolderName] = useState('');
@@ -6210,6 +6452,11 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     setQuickAddReceiverSuccess('');
 
     if (!quickAddReceiverCustomer) return;
+
+    if (!quickNewReceiverMethod) {
+      setQuickAddReceiverError('Please select a payment method/channel.');
+      return;
+    }
 
     // Field validations depending on method
     if (quickNewReceiverMethod === 'Bank') {
@@ -6586,7 +6833,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   // Create state for adding a receiver from the list management panel
   const [showMgmtAddForm, setShowMgmtAddForm] = useState(false);
   const [mgmtAddCustId, setMgmtAddCustId] = useState('');
-  const [mgmtAddMethod, setMgmtAddMethod] = useState('Bank');
+  const [mgmtAddMethod, setMgmtAddMethod] = useState('');
   const [mgmtAddPhone, setMgmtAddPhone] = useState('');
   const [mgmtAddBankName, setMgmtAddBankName] = useState('');
   const [mgmtAddBankBranch, setMgmtAddBankBranch] = useState('');
@@ -6609,7 +6856,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [mgmtEditAccountName, setMgmtEditAccountName] = useState('');
 
   // States for new receiver fields inside Add Receiver Modal
-  const [newReceiverMethod, setNewReceiverMethod] = useState('Bank'); // 'Bank' | 'Bkash' | 'Nagad' | 'Rocket'
+  const [newReceiverMethod, setNewReceiverMethod] = useState(''); // '' | 'Bank' | 'Bkash' | 'Nagad' | 'Rocket'
   const [newReceiverBankName, setNewReceiverBankName] = useState('');
   const [newReceiverBankBranch, setNewReceiverBankBranch] = useState('');
   const [newReceiverBankHolderName, setNewReceiverBankHolderName] = useState('');
@@ -7112,6 +7359,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   };
 
   const [agentTxTypeFilter, setAgentTxTypeFilter] = useState<'ALL' | 'DEPOSIT' | 'WITHDRAWAL'>('ALL');
+  const [agentTxStatusFilter, setAgentTxStatusFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('ALL');
   const [agentStartDateFilter, setAgentStartDateFilter] = useState('');
   const [agentEndDateFilter, setAgentEndDateFilter] = useState('');
   const [selectedSparklineCustomerId, setSelectedSparklineCustomerId] = useState<string>('ALL');
@@ -7264,6 +7512,11 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       result = result.filter(tx => tx.type === agentTxTypeFilter);
     }
 
+    // Filter by status
+    if (agentTxStatusFilter !== 'ALL') {
+      result = result.filter(tx => tx.status === agentTxStatusFilter);
+    }
+
     // Filter by start date
     if (agentStartDateFilter) {
       const startDate = new Date(agentStartDateFilter);
@@ -7314,7 +7567,217 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     }
 
     return result;
-  }, [transactions, agentSearchQuery, agentTxTypeFilter, agentStartDateFilter, agentEndDateFilter, agentTxSort]);
+  }, [transactions, agentSearchQuery, agentTxTypeFilter, agentTxStatusFilter, agentStartDateFilter, agentEndDateFilter, agentTxSort]);
+
+  const handlePrintHistorySummary = () => {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const totalVolume = filteredTransactions.reduce((sum, tx) => sum + tx.amount, 0);
+    const totalCommission = filteredTransactions
+      .filter(tx => tx.type === 'WITHDRAWAL' && tx.status === 'APPROVED')
+      .reduce((sum, tx) => sum + (settings?.agentCommission ?? 1.5), 0);
+
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`
+        <html>
+          <head>
+            <title>WalletPro - Transaction Summary Report</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+              
+              body {
+                font-family: 'Inter', sans-serif;
+                background-color: #ffffff;
+                color: #0f172a;
+                padding: 30px;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              
+              @page {
+                size: portrait;
+                margin: 12mm 15mm;
+              }
+              
+              @media print {
+                body {
+                  padding: 0px;
+                }
+                .no-print {
+                  display: none !important;
+                }
+              }
+              
+              table {
+                page-break-inside: auto;
+              }
+              
+              tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+              }
+              
+              thead {
+                display: table-header-group;
+              }
+            </style>
+          </head>
+          <body onload="window.print(); setTimeout(function(){ window.frameElement.remove(); }, 1500)">
+            <div class="max-w-4xl mx-auto space-y-6">
+              {/* Header */}
+              <div class="flex items-center justify-between border-b-2 border-indigo-600 pb-5">
+                <div class="flex items-center gap-4">
+                  ${settings?.logoUrl ? `
+                    <img src="${settings.logoUrl}" alt="Business Logo" class="h-12 w-auto object-contain rounded-xl border border-slate-150 shadow-xs" referrerPolicy="no-referrer" />
+                  ` : `
+                    <div class="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-extrabold text-lg shadow-sm">W</div>
+                  `}
+                  <div>
+                    <h1 class="text-2xl font-black text-slate-900 tracking-tight">WalletPro</h1>
+                    <p class="text-[10px] text-slate-400 font-black tracking-widest uppercase mt-0.5">Transaction Summary Report</p>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest font-mono">Date Generated</p>
+                  <p class="text-xs font-extrabold text-slate-800 font-mono">${new Date().toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Agent & Filters Grid */}
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
+                <div class="space-y-1 text-left">
+                  <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Agent Details</p>
+                  <p class="text-sm font-black text-slate-800">${profile?.name || 'Unspecified Agent'}</p>
+                  <p class="text-xs font-bold text-slate-500 font-mono">Phone: ${profile?.phone || 'N/A'}</p>
+                  <p class="text-xs font-bold text-slate-500 font-mono">Email: ${profile?.email || 'N/A'}</p>
+                </div>
+                <div class="space-y-1 text-left md:text-right">
+                  <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest">Active Filters</p>
+                  <p class="text-xs font-bold text-slate-600">
+                    Type: <span class="font-extrabold text-indigo-600 uppercase">${agentTxTypeFilter}</span>
+                  </p>
+                  <p class="text-xs font-bold text-slate-600">
+                    Status: <span class="font-extrabold text-indigo-600 uppercase">${agentTxStatusFilter}</span>
+                  </p>
+                  <p class="text-xs font-bold text-slate-600">
+                    Search: <span class="font-bold text-slate-800">"${agentSearchQuery || 'None'}"</span>
+                  </p>
+                  <p class="text-xs font-bold text-slate-600">
+                    Date Range: <span class="font-extrabold text-slate-700">${agentStartDateFilter || 'Any'}</span> to <span class="font-extrabold text-slate-700">${agentEndDateFilter || 'Any'}</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Metrics Summary Cards */}
+              <div class="grid grid-cols-3 gap-4">
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs text-left">
+                  <span class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block">Total Records</span>
+                  <span class="text-lg font-black text-slate-800">${filteredTransactions.length}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs text-left">
+                  <span class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block">Filtered Volume</span>
+                  <span class="text-lg font-black text-slate-800">$${totalVolume.toFixed(2)}</span>
+                </div>
+                <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-xs text-left">
+                  <span class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest block">Commission Earned</span>
+                  <span class="text-lg font-black text-emerald-600">$${totalCommission.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Transactions Table */}
+              <div class="border border-slate-200 rounded-2xl overflow-hidden bg-white shadow-xs">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr class="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold uppercase tracking-wider text-[9px]">
+                      <th class="p-3.5 pl-4 text-center">#</th>
+                      <th class="p-3.5">Date & Time</th>
+                      <th class="p-3.5">Transaction ID / Ref</th>
+                      <th class="p-3.5">Customer / Receiver</th>
+                      <th class="p-3.5">Type & Method</th>
+                      <th class="p-3.5 text-right">Amount (USD)</th>
+                      <th class="p-3.5 text-right">Amount (BDT)</th>
+                      <th class="p-3.5 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100 text-slate-700">
+                    ${filteredTransactions.length === 0 ? `
+                      <tr>
+                        <td colspan="8" class="p-8 text-center text-slate-400 uppercase tracking-widest font-black text-[10px]">No transactions match current filters</td>
+                      </tr>
+                    ` : filteredTransactions.map((tx, idx) => {
+                      const date = tx.timestamp?.toDate 
+                        ? tx.timestamp.toDate().toLocaleString() 
+                        : (tx.timestamp?.seconds ? new Date(tx.timestamp.seconds * 1000).toLocaleString() : new Date(tx.timestamp || Date.now()).toLocaleString());
+                      const customerName = tx.customerName || tx.senderName || tx.receiverName || 'N/A';
+                      const txId = tx.transitionId || tx.id || 'N/A';
+                      const bdtVal = tx.conversionRate ? (tx.amount * tx.conversionRate) : (tx.amount * (settings?.usdToBdt || 120));
+                      
+                      let statusBadgeClass = "";
+                      if (tx.status === 'APPROVED') {
+                        statusBadgeClass = "bg-emerald-50 text-emerald-700 border border-emerald-150";
+                      } else if (tx.status === 'PENDING') {
+                        statusBadgeClass = "bg-amber-50 text-amber-700 border border-amber-150";
+                      } else {
+                        statusBadgeClass = "bg-rose-50 text-rose-700 border border-rose-150";
+                      }
+
+                      return `
+                        <tr class="hover:bg-slate-50/50">
+                          <td class="p-3 text-center text-slate-400 font-bold font-mono">${idx + 1}</td>
+                          <td class="p-3 text-slate-600 font-medium whitespace-nowrap">${date}</td>
+                          <td class="p-3 font-mono font-bold text-slate-800 select-all break-all" style="max-width: 140px;">${txId}</td>
+                          <td class="p-3 font-semibold text-slate-700">${customerName}</td>
+                          <td class="p-3">
+                            <span class="font-extrabold text-[10px] tracking-wider uppercase ${tx.type === 'DEPOSIT' ? 'text-emerald-600' : 'text-rose-600'}">${tx.type}</span>
+                            <span class="text-slate-400 text-[10px]">via</span>
+                            <span class="font-bold text-slate-500">${tx.method || 'Wallet'}</span>
+                          </td>
+                          <td class="p-3 text-right font-black ${tx.type === 'DEPOSIT' ? 'text-emerald-600' : 'text-slate-800'}">
+                            ${tx.type === 'DEPOSIT' ? '+' : '-'}$${tx.amount.toFixed(2)}
+                          </td>
+                          <td class="p-3 text-right font-bold text-slate-600 font-mono">
+                            ৳${bdtVal.toFixed(2)}
+                          </td>
+                          <td class="p-3 text-center">
+                            <span class="inline-block px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${statusBadgeClass}">
+                              ${tx.status}
+                            </span>
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Disclaimer / Signature Section */}
+              <div class="flex items-center justify-between border-t border-slate-200 pt-5 text-[10px] text-slate-400 font-semibold font-mono">
+                <div>
+                  <p>WalletPro Financial Network System</p>
+                  <p>Auto-Generated Statement via Secure Agent Portal</p>
+                </div>
+                <div class="text-right">
+                  <p>Page 1 of 1</p>
+                  <p class="text-indigo-600 font-bold font-sans">Verified Signature</p>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `);
+      doc.close();
+    }
+  };
 
   const filteredMyCustomers = useMemo(() => {
     if (!custSearchQuery.trim()) return myCustomers;
@@ -7984,6 +8447,11 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     setAddReceiverError('');
     setAddReceiverSuccess('');
 
+    if (!newReceiverMethod) {
+      setAddReceiverError('Please select a payment method.');
+      return;
+    }
+
     // Field validations depending on method
     if (newReceiverMethod === 'Bank') {
       if (!newReceiverBankName.trim() || !newReceiverBankBranch.trim() || !newReceiverBankHolderName.trim() || !newReceiverBankAccountNumber.trim() || !newReceiverBankPhone.trim()) {
@@ -8346,6 +8814,11 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     e.preventDefault();
     setMgmtError('');
     setMgmtSuccess('');
+
+    if (!mgmtAddMethod) {
+      setMgmtError('Please select a payment method.');
+      return;
+    }
 
     if (!mgmtAddCustId) {
       setMgmtError('Please select a customer first.');
@@ -9000,6 +9473,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             { id: 'CUSTOMER_MANAGEMENT' as const, label: 'My Customers', icon: Users, count: myCustomers.length },
             { id: 'RECEIVER_MANAGEMENT' as const, label: 'My Receivers', icon: Contact, count: filteredAgentReceivers.length },
             { id: 'SYSTEM_RATES' as const, label: 'System Rates', icon: Settings },
+            { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
             { id: 'FEEDBACK' as const, label: 'Feedback & Bug Report', icon: MessageSquare },
           ].map((t) => {
             const Icon = t.icon;
@@ -9096,6 +9570,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     { id: 'CUSTOMER_MANAGEMENT' as const, label: 'My Customers', icon: Users, count: myCustomers.length },
                     { id: 'RECEIVER_MANAGEMENT' as const, label: 'My Receivers', icon: Contact, count: filteredAgentReceivers.length },
                     { id: 'SYSTEM_RATES' as const, label: 'System Rates', icon: Settings },
+                    { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
                     { id: 'FEEDBACK' as const, label: 'Feedback & Bug Report', icon: MessageSquare },
                   ].map((t) => {
                     const Icon = t.icon;
@@ -9144,10 +9619,44 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                 </nav>
               </div>
 
-              <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl">
-                <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block mb-1">Active Agent</span>
-                <p className="text-xs font-black text-slate-850 truncate">{profile.name}</p>
-                <p className="text-[10px] text-slate-400 font-semibold font-mono">{profile.phone}</p>
+              <div className="space-y-4">
+                {/* Quick Actions Header & Button Row */}
+                <div className="space-y-2">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block text-left">
+                    Quick Actions
+                  </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        setAgentActiveTab('DEPOSIT');
+                        handleOpenForm('DEPOSIT');
+                        setAgentMobileSidebarOpen(false);
+                      }}
+                      className="flex items-center justify-center gap-1.5 py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-all border border-indigo-100 active:scale-95 cursor-pointer shadow-xs"
+                    >
+                      <PlusCircle size={14} className="shrink-0" />
+                      <span>Deposit</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setAgentActiveTab('WITHDRAWAL');
+                        handleOpenForm('WITHDRAWAL');
+                        setAgentMobileSidebarOpen(false);
+                      }}
+                      className="flex items-center justify-center gap-1.5 py-3 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all border border-rose-100 active:scale-95 cursor-pointer shadow-xs"
+                    >
+                      <ArrowUpRight size={14} className="shrink-0" />
+                      <span>Withdraw</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Active Agent Info */}
+                <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-left">
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block mb-1">Active Agent</span>
+                  <p className="text-xs font-black text-slate-850 truncate">{profile.name}</p>
+                  <p className="text-[10px] text-slate-400 font-semibold font-mono">{profile.phone}</p>
+                </div>
               </div>
             </motion.div>
           </div>
@@ -9157,31 +9666,92 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       {/* Content Column */}
       <div className="flex-1 min-w-0 space-y-6">
         {/* Mobile Nav Header Row */}
-        <div className="md:hidden flex items-center justify-between bg-white border border-slate-200 p-4 rounded-3xl shadow-sm">
+        <div className="md:hidden flex items-center justify-between bg-white border border-slate-200 p-3 px-4 rounded-3xl shadow-sm gap-2">
           <button
             onClick={() => setAgentMobileSidebarOpen(true)}
-            className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+            className="p-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
           >
             <List size={16} />
             <span className="text-[10px] font-black uppercase tracking-wider">NAV MENU</span>
           </button>
           
-          <div className="text-right">
-            <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block bg-indigo-50/50 px-2 py-0.5 rounded-md inline-block font-sans">
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block bg-indigo-50/70 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
               {agentActiveTab === 'OVERVIEW' ? 'Overview' :
-               agentActiveTab === 'DEPOSIT' ? 'Deposit Request' :
-               agentActiveTab === 'WITHDRAWAL' ? 'Withdrawal Request' :
-               agentActiveTab === 'TRANSACTION_HISTORY' ? 'My History' :
-               agentActiveTab === 'COMMISSIONS' ? 'Commissions Breakdown' :
-               agentActiveTab === 'CUSTOMER_MANAGEMENT' ? 'My Customers' :
-               agentActiveTab === 'RECEIVER_MANAGEMENT' ? 'My Receivers' :
-               agentActiveTab === 'SYSTEM_RATES' ? 'System Rates' : 'Feedback & Bug Report'}
+               agentActiveTab === 'DEPOSIT' ? 'Deposit' :
+               agentActiveTab === 'WITHDRAWAL' ? 'Withdrawal' :
+               agentActiveTab === 'TRANSACTION_HISTORY' ? 'History' :
+               agentActiveTab === 'COMMISSIONS' ? 'Commissions' :
+               agentActiveTab === 'CUSTOMER_MANAGEMENT' ? 'Customers' :
+               agentActiveTab === 'RECEIVER_MANAGEMENT' ? 'Receivers' :
+               agentActiveTab === 'SYSTEM_RATES' ? 'System Rates' :
+               agentActiveTab === 'LIVE_CURRENCY' ? 'Live FX Rates' : 'Feedback'}
             </span>
+            {/* Mobile Alerts Bell */}
+            <div className="relative">
+              <button
+                onClick={() => setShowBellDropdown(!showBellDropdown)}
+                className="p-2 text-slate-400 hover:text-slate-700 transition-all bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer relative shrink-0"
+                title="Alert Center"
+              >
+                <Bell 
+                  size={15} 
+                  className={cn(
+                    notifications.filter(n => !n.read).length > 0 ? "text-indigo-600 animate-pulse" : "text-slate-400"
+                  )} 
+                />
+                {notifications.filter(n => !n.read).length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-rose-500 text-white rounded-full text-[8px] font-black h-4 px-1 flex items-center justify-center min-w-[16px]">
+                    {notifications.filter(n => !n.read).length}
+                  </span>
+                )}
+              </button>
+              {showBellDropdown && (
+                <>
+                  <div className="fixed inset-0 z-40 bg-transparent" onClick={() => setShowBellDropdown(false)} />
+                  <div className="absolute right-0 mt-3 w-72 sm:w-80 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 p-4 space-y-3 max-h-96 overflow-y-auto text-left">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                      <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest font-mono">Alerts ({notifications.filter(n => !n.read).length} unread)</span>
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                          }}
+                          className="text-[9px] text-indigo-600 font-bold uppercase hover:underline cursor-pointer"
+                        >
+                          Mark Read
+                        </button>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      {notifications.length === 0 ? (
+                        <div className="py-8 text-center space-y-2">
+                          <Bell className="mx-auto text-slate-300 stroke-1" size={24} />
+                          <p className="text-[9px] text-slate-400 uppercase tracking-widest font-black leading-none">All clear</p>
+                        </div>
+                      ) : (
+                        notifications.map((n, i) => (
+                          <div key={i} className={cn("p-2.5 rounded-xl text-[11px] border transition-all text-left", n.read ? "bg-slate-50/50 border-slate-100 text-slate-500" : "bg-indigo-50/30 border-indigo-100 text-slate-800 font-medium")}>
+                            <div className="flex justify-between items-start gap-1">
+                              <span className="text-[8px] font-black uppercase tracking-wider text-indigo-600">{n.title}</span>
+                              <span className="text-[8px] font-semibold text-slate-400 font-mono">
+                                {new Date(n.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-600 font-semibold leading-normal mt-1">{n.message}</p>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Global Alert Center Top Bar Greeting */}
-        <div className="flex items-center justify-between bg-white p-5 px-6 rounded-3xl border border-slate-200 gap-4 flex-wrap">
+        <div className="hidden md:flex items-center justify-between bg-white p-5 px-6 rounded-3xl border border-slate-200 gap-4 flex-wrap">
          <div>
            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest font-mono">Agent Account Segment</span>
            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Agent Partner: {profile.name}</h1>
@@ -9342,22 +9912,22 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Left Column (Wallet & Commission Chart) */}
               <div className="lg:col-span-2 space-y-8">
-                <div className="bg-indigo-600 rounded-[2.5rem] p-10 text-white relative overflow-hidden shadow-2xl shadow-indigo-200">
-         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-10">
+                <div className="bg-indigo-600 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-10 text-white relative overflow-hidden shadow-2xl shadow-indigo-200">
+         <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-6 sm:gap-10">
            <div>
               <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-2">Available Balance</p>
-              <h2 className="text-6xl font-black tracking-tighter mb-8">${profile.balance.toLocaleString()}</h2>
+              <h2 className="text-4xl sm:text-6xl font-black tracking-tighter mb-4 sm:mb-8">${profile.balance.toLocaleString()}</h2>
               
            </div>
            
-           <div className="flex flex-col gap-4">
-             <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
-               <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-1">Total Customers</p>
-               <p className="text-2xl font-black">{myCustomers.length}</p>
+          <div className="grid grid-cols-2 sm:flex sm:flex-col gap-3 sm:gap-4 w-full sm:w-auto shrink-0">
+             <div className="p-3 sm:p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
+               <p className="text-[9px] sm:text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-1">Total Customers</p>
+               <p className="text-xl sm:text-2xl font-black">{myCustomers.length}</p>
              </div>
-             <div className="p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
-               <p className="text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-1">Today's Earnings</p>
-               <p className="text-2xl font-black">${todaysEarnings.toFixed(2)}</p>
+             <div className="p-3 sm:p-4 bg-white/10 backdrop-blur-md rounded-2xl border border-white/10">
+               <p className="text-[9px] sm:text-[10px] font-bold text-indigo-200 uppercase tracking-widest mb-1">Today's Earnings</p>
+               <p className="text-xl sm:text-2xl font-black">${todaysEarnings.toFixed(2)}</p>
              </div>
            </div>
          </div>
@@ -9515,6 +10085,13 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   </div>
                 </div>
 
+                {/* Profit Calculator Widget */}
+                <ProfitCalculator 
+                  pendingCount={agentPendingWithdrawals.count}
+                  pendingSum={agentPendingWithdrawals.sum}
+                  currentCommissionRate={settings.agentCommission ?? 1.5}
+                />
+
                 <div className="bg-white rounded-3xl border border-slate-200 p-8 space-y-6">
                   <h3 className="font-bold text-lg">System Rates</h3>
                   <div className="space-y-4">
@@ -9548,11 +10125,21 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             {/* Left Column: Transaction list */}
             <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-200 overflow-hidden h-fit shadow-sm">
               <div className="px-6 py-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-lg">Transaction History</h3>
-                  <History size={18} className="text-slate-400" />
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-lg text-slate-800">Transaction History</h3>
+                    <History size={18} className="text-slate-400" />
+                  </div>
+                  <button
+                    onClick={handlePrintHistorySummary}
+                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-[11px] font-black tracking-wider transition-all border border-indigo-100 hover:border-indigo-200 active:scale-95 cursor-pointer flex items-center gap-1.5 shadow-xs uppercase shrink-0"
+                    title="Print currently filtered transaction list summary"
+                  >
+                    <Printer size={13} className="stroke-[2.5]" />
+                    <span>Print Summary</span>
+                  </button>
                 </div>
-                <div className="relative max-w-[280px] w-full">
+                <div className="relative max-w-none sm:max-w-[280px] w-full">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <input
                     type="text"
@@ -9562,6 +10149,45 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-indigo-600 focus:bg-white focus:border-transparent transition-all text-slate-800"
                   />
                 </div>
+              </div>
+
+              {/* Status Quick Filter Pills */}
+              <div className="px-6 py-3 border-b border-slate-100 flex flex-wrap gap-2 bg-slate-50/30">
+                {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((status) => {
+                  const isActive = agentTxStatusFilter === status;
+                  return (
+                    <button
+                      key={status}
+                      onClick={() => setAgentTxStatusFilter(status)}
+                      className={cn(
+                        "px-3.5 py-1.5 rounded-full text-[11px] font-extrabold transition-all cursor-pointer flex items-center gap-1.5 border",
+                        isActive 
+                          ? "bg-indigo-600 border-indigo-600 text-white shadow-xs" 
+                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                      )}
+                    >
+                      {status === 'ALL' && <span>All Statuses</span>}
+                      {status === 'PENDING' && (
+                        <>
+                          <span className={cn("w-1.5 h-1.5 rounded-full bg-amber-500", isActive ? "bg-white animate-pulse" : "bg-amber-500 animate-pulse")} />
+                          <span>Pending</span>
+                        </>
+                      )}
+                      {status === 'APPROVED' && (
+                        <>
+                          <Check size={11} className={cn("shrink-0", isActive ? "text-white" : "text-emerald-500")} />
+                          <span>Approved</span>
+                        </>
+                      )}
+                      {status === 'REJECTED' && (
+                        <>
+                          <X size={11} className={cn("shrink-0", isActive ? "text-white" : "text-rose-500")} />
+                          <span>Rejected</span>
+                        </>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Filters Bar */}
@@ -9719,9 +10345,10 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                               animate={{ scale: 1, opacity: 1 }}
                               transition={{ type: "spring", stiffness: 350, damping: 20 }}
                               className={cn(
-                                "text-[9px] px-2 py-0.5 rounded-full font-black uppercase tracking-tighter inline-flex items-center gap-1 shadow-sm/5",
-                                tx.status === 'PENDING' ? "bg-amber-100 text-amber-600" : 
-                                tx.status === 'APPROVED' ? "bg-emerald-100 text-emerald-600" : "bg-rose-100 text-rose-600"
+                                "text-[9px] px-2.5 py-0.5 rounded-full font-black uppercase tracking-wider inline-flex items-center gap-1 shadow-xs border",
+                                tx.status === 'PENDING' ? "bg-amber-100/90 text-amber-800 border-amber-300" : 
+                                tx.status === 'APPROVED' ? "bg-emerald-100/90 text-emerald-800 border-emerald-300" : 
+                                "bg-rose-100/90 text-rose-800 border-rose-300"
                               )}
                             >
                               {tx.status === 'APPROVED' && <Check size={10} className="shrink-0 stroke-[3]" />}
@@ -10165,10 +10792,10 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     </div>
                     
                     <div className={cn(
-                      "shrink-0 flex items-center gap-3 md:gap-4",
+                      "shrink-0 flex items-center gap-2 sm:gap-3 md:gap-4 flex-wrap w-full sm:w-auto justify-end mt-2 sm:mt-0",
                       customerViewMode === 'GRID' 
-                        ? "mt-1 pt-3 border-t border-slate-100 flex items-center justify-between w-full"
-                        : "flex-row items-center ml-auto"
+                        ? "mt-1 pt-3 border-t border-slate-100 justify-between"
+                        : ""
                     )}>
                       {customerViewMode === 'GRID' ? (
                         <div className="text-left">
@@ -10188,7 +10815,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         onClick={(e) => { 
                           e.stopPropagation(); 
                           setQuickAddReceiverCustomer(cust); 
-                          setQuickNewReceiverMethod('Bank');
+                          setQuickNewReceiverMethod('');
                           setQuickNewReceiverPhone('');
                           setQuickNewReceiverAccountName('');
                           setQuickNewReceiverBankName('');
@@ -10249,6 +10876,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       setEditingMgmtReceiver(null);
                       setMgmtError('');
                       setMgmtSuccess('');
+                      setMgmtAddMethod('');
                       // Set default customer selection
                       if (myCustomers.length > 0 && !mgmtAddCustId) {
                         setMgmtAddCustId(myCustomers[0].uid || myCustomers[0].phone);
@@ -10405,6 +11033,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
                         required
                       >
+                        <option value="">-- Select Method --</option>
                         <option value="Bank">Bank Deposit</option>
                         <option value="Bkash">Bkash</option>
                         <option value="Nagad">Nagad</option>
@@ -10412,7 +11041,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </select>
                     </div>
 
-                    {mgmtAddMethod !== 'Bank' ? (
+                    {mgmtAddMethod && mgmtAddMethod !== 'Bank' ? (
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 font-sans">3. Target Phone / Account Mobile</label>
                         <input
@@ -10424,9 +11053,13 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                           required={mgmtAddMethod !== 'Bank'}
                         />
                       </div>
-                    ) : (
+                    ) : mgmtAddMethod === 'Bank' ? (
                       <div className="flex items-center justify-start text-[10px] text-blue-600 font-bold bg-white px-3.5 py-3 rounded-xl border border-dashed border-blue-150 leading-normal">
                         <span>ℹ️ For Bank method, fill in the mobile number inside the details grid below.</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-start text-[10px] text-slate-500 font-semibold bg-white px-3.5 py-3 rounded-xl border border-dashed border-slate-200 leading-normal">
+                        <span>ℹ️ Please select a payment method above to start configuration.</span>
                       </div>
                     )}
                   </div>
@@ -10490,8 +11123,8 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         />
                       </div>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4.5 bg-slate-50 border border-slate-100 rounded-2xl">
+                  ) : ['Bkash', 'Nagad', 'Rocket'].includes(mgmtAddMethod) ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4.5 bg-slate-50 border border-slate-100 rounded-2xl animate-fade-in text-left">
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 font-sans">Receiver Account Name</label>
                         <input
@@ -10500,12 +11133,16 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                           onChange={e => setMgmtAddAccountName(e.target.value)}
                           placeholder="e.g. Nafiz S-Wallet Account"
                           className="w-full p-3 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none font-medium"
-                          required={mgmtAddMethod !== 'Bank'}
+                          required={['Bkash', 'Nagad', 'Rocket'].includes(mgmtAddMethod)}
                         />
                       </div>
                       <div className="flex items-center justify-start text-[10px] text-indigo-600 font-bold bg-white p-3 rounded-xl border border-dashed border-indigo-100 leading-relaxed font-semibold">
                         <span>ℹ️ This account name should match the customer's mobile wallet registration details.</span>
                       </div>
+                    </div>
+                  ) : (
+                    <div className="p-6 bg-slate-50 border border-slate-150 rounded-2xl text-[11px] text-slate-500 font-bold text-center border-dashed font-sans">
+                      Select a Payment Method to configure account details.
                     </div>
                   )}
 
@@ -10993,17 +11630,17 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       )}
                     </button>
 
-                    {showSenderSuggestions && senderId.trim().length >= 2 && (
+                    {showSenderSuggestions && (
                       <div className="absolute left-0 right-0 z-30 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl mt-1.5 shadow-xl py-1 text-left">
                         {(() => {
                           const term = senderId.toLowerCase().trim();
-                          const filtered = myCustomers.filter(u => {
+                          const filtered = term ? myCustomers.filter(u => {
                             const matchesUid = (u.uid || '').toLowerCase().includes(term);
                             const matchesPhone = (u.phone || '').toLowerCase().includes(term);
                             const matchesName = (u.name || '').toLowerCase().includes(term);
                             
                             return matchesUid || matchesPhone || matchesName;
-                          });
+                          }) : myCustomers;
                           
                           if (filtered.length === 0) {
                             return (
@@ -11066,6 +11703,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       type="button"
                       onClick={() => {
                         setShowAddReceiverModal(true);
+                        setNewReceiverMethod('');
                         setAddReceiverError('');
                         setAddReceiverSuccess('');
                       }}
@@ -11098,7 +11736,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         <Search size={14} className="absolute left-3.5 top-4.5 text-slate-400 pointer-events-none" />
                       </div>
 
-                      {showReceiverSuggestions && receiverName.trim().length >= 1 && (
+                      {showReceiverSuggestions && (
                         <div className="absolute left-0 right-0 z-30 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl mt-1.5 shadow-xl py-1 text-left">
                           {(() => {
                             const term = receiverName.toLowerCase().trim();
@@ -11107,7 +11745,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                               ...customerReceivers,
                               ...agentReceivers.filter(ar => !customerReceivers.some(cr => cr.id === ar.id))
                             ];
-                            const filtered = allRecs.filter(r => isReceiverMatch(r, term));
+                            const filtered = term ? allRecs.filter(r => isReceiverMatch(r, term)) : allRecs;
                             
                             if (filtered.length === 0) {
                               return (
@@ -11608,6 +12246,10 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               </div>
             </div>
           </div>
+        )}
+
+        {agentActiveTab === 'LIVE_CURRENCY' && (
+          <LiveCurrencyRates />
         )}
       </div>
 
@@ -12189,6 +12831,11 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       )}
                     >
                       <div className="text-center">
+                        {settings?.logoUrl && (
+                          <div className="flex justify-center mb-2">
+                            <img src={settings.logoUrl} alt="Logo" className="h-8 max-w-[120px] object-contain rounded-sm" referrerPolicy="no-referrer" />
+                          </div>
+                        )}
                         <div className={cn("font-black uppercase tracking-wider mb-1 leading-tight", receiptFontSize === 'large' ? 'text-sm' : 'text-xs')}>
                           {receiptTitle}
                         </div>
@@ -12335,7 +12982,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                 exit={{ opacity: 0 }}
                 onClick={() => {
                   setShowAddReceiverModal(false);
-                  setNewReceiverMethod('Bank');
+                  setNewReceiverMethod('');
                   setNewReceiverBankName('');
                   setNewReceiverBankBranch('');
                   setNewReceiverBankHolderName('');
@@ -12362,12 +13009,13 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 
                 <div className="space-y-4">
                   <div>
-                    <label className="text-sm font-bold text-slate-700 block mb-2 font-sans">Select Method</label>
+                    <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Select Method</label>
                     <select
                       className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-bold font-sans"
                       value={newReceiverMethod}
                       onChange={e => setNewReceiverMethod(e.target.value)}
                     >
+                      <option value="">-- Select Method --</option>
                       <option value="Bank">Bank</option>
                       <option value="Bkash">Bkash</option>
                       <option value="Nagad">Nagad</option>
@@ -12378,7 +13026,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   {newReceiverMethod === 'Bank' ? (
                     <>
                       <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-2 font-sans">Bank Name</label>
+                        <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Bank Name</label>
                         <input
                           type="text"
                           className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-semibold font-sans"
@@ -12389,7 +13037,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </div>
 
                       <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-2 font-sans">Bank Branch</label>
+                        <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Bank Branch</label>
                         <input
                           type="text"
                           className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-semibold font-sans"
@@ -12400,7 +13048,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </div>
 
                       <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-2 font-sans">Bank Holder Name</label>
+                        <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Bank Holder Name</label>
                         <input
                           type="text"
                           className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-semibold font-sans"
@@ -12411,7 +13059,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </div>
 
                       <div>
-                        <label className="text-sm font-bold text-slate-705 block mb-2 font-sans">Bank Account Number</label>
+                        <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Bank Account Number</label>
                         <input
                           type="text"
                           className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-semibold font-mono"
@@ -12422,7 +13070,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </div>
 
                       <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-2 font-sans">Mobile Number</label>
+                        <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Mobile Number</label>
                         <input
                           type="text"
                           className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-semibold font-mono"
@@ -12432,7 +13080,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         />
                       </div>
                     </>
-                  ) : (
+                  ) : ['Bkash', 'Nagad', 'Rocket'].includes(newReceiverMethod) ? (
                     <>
                       <div>
                         <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Account Name</label>
@@ -12446,7 +13094,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </div>
 
                       <div>
-                        <label className="text-sm font-bold text-slate-700 block mb-2 font-sans">Mobile Number</label>
+                        <label className="text-sm font-bold text-slate-707 block mb-2 font-sans">Mobile Number</label>
                         <input
                           type="text"
                           className="w-full p-3.5 bg-white rounded-xl border border-slate-200 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-800 text-sm font-semibold font-mono"
@@ -12456,20 +13104,24 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         />
                       </div>
                     </>
-                  )}
-
-                  {addReceiverError && (
-                    <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-rose-700 text-xs font-bold font-sans">
-                      ⚠ {addReceiverError}
-                    </div>
-                  )}
-
-                  {addReceiverSuccess && (
-                    <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-700 text-xs font-bold font-sans">
-                      ✔ {addReceiverSuccess}
+                  ) : (
+                    <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-500 font-semibold text-center border-dashed font-sans">
+                      Select a Payment Method to configure account details.
                     </div>
                   )}
                 </div>
+
+                {addReceiverError && (
+                  <div className="p-3 bg-rose-50 border border-rose-100 rounded-xl text-rose-700 text-xs font-bold font-sans mt-4">
+                    ⚠ {addReceiverError}
+                  </div>
+                )}
+
+                {addReceiverSuccess && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-700 text-xs font-bold font-sans mt-4">
+                    ✔ {addReceiverSuccess}
+                  </div>
+                )}
 
                 <div className="flex gap-3 justify-start mt-8 font-sans">
                   <button
@@ -12483,7 +13135,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     type="button"
                     onClick={() => {
                       setShowAddReceiverModal(false);
-                      setNewReceiverMethod('Bank');
+                      setNewReceiverMethod('');
                       setNewReceiverBankName('');
                       setNewReceiverBankBranch('');
                       setNewReceiverBankHolderName('');
@@ -12511,7 +13163,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                 exit={{ opacity: 0 }}
                 onClick={() => {
                   setQuickAddReceiverCustomer(null);
-                  setQuickNewReceiverMethod('Bank');
+                  setQuickNewReceiverMethod('');
                   setQuickNewReceiverBankName('');
                   setQuickNewReceiverBankBranch('');
                   setQuickNewReceiverBankHolderName('');
@@ -12546,6 +13198,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       value={quickNewReceiverMethod}
                       onChange={e => setQuickNewReceiverMethod(e.target.value)}
                     >
+                      <option value="">-- Select Method --</option>
                       <option value="Bank">Bank Deposit</option>
                       <option value="Bkash">bKash Carrier</option>
                       <option value="Nagad">Nagad Carrier</option>
@@ -12599,7 +13252,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         />
                       </div>
                     </>
-                  ) : (
+                  ) : ['Bkash', 'Nagad', 'Rocket'].includes(quickNewReceiverMethod) ? (
                     <>
                       <div>
                         <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 font-sans">Mobile Wallet Account Name</label>
@@ -12612,18 +13265,24 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         />
                       </div>
                     </>
+                  ) : (
+                    <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-500 font-semibold text-center border-dashed font-sans">
+                      Select a Payment Method to configure account details.
+                    </div>
                   )}
 
-                  <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 font-sans">Recipient Mobile Number</label>
-                    <input
-                      type="text"
-                      className="w-full p-3.5 bg-slate-50 rounded-xl border border-slate-250 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-850 text-xs font-bold font-mono"
-                      value={quickNewReceiverPhone}
-                      onChange={e => setQuickNewReceiverPhone(e.target.value)}
-                      placeholder="e.g. 01700000000"
-                    />
-                  </div>
+                  {quickNewReceiverMethod && (
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1.5 font-sans">Recipient Mobile Number</label>
+                      <input
+                        type="text"
+                        className="w-full p-3.5 bg-slate-50 rounded-xl border border-slate-250 focus:bg-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all outline-none text-slate-850 text-xs font-bold font-mono"
+                        value={quickNewReceiverPhone}
+                        onChange={e => setQuickNewReceiverPhone(e.target.value)}
+                        placeholder="e.g. 01700000000"
+                      />
+                    </div>
+                  )}
 
                   {quickAddReceiverError && (
                     <div className="p-3.5 bg-rose-50 border border-rose-100 rounded-2xl text-rose-700 text-xs font-bold font-sans">
@@ -12650,7 +13309,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     type="button"
                     onClick={() => {
                       setQuickAddReceiverCustomer(null);
-                      setQuickNewReceiverMethod('Bank');
+                      setQuickNewReceiverMethod('');
                       setQuickNewReceiverBankName('');
                       setQuickNewReceiverBankBranch('');
                       setQuickNewReceiverBankHolderName('');
@@ -13613,13 +14272,13 @@ function StatCard({ title, value, icon, color }: { title: string, value: string,
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: 'spring', stiffness: 100, damping: 15 }}
-      className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow"
+      className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-[2rem] border border-slate-200 shadow-sm flex items-center justify-between hover:shadow-md transition-shadow"
     >
-      <div>
-        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">{title}</p>
-        <p className="text-3xl font-black tracking-tighter">{value}</p>
+      <div className="min-w-0 pr-2">
+        <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1 truncate" title={title}>{title}</p>
+        <p className="text-2xl sm:text-3xl font-black tracking-tighter truncate" title={value}>{value}</p>
       </div>
-      <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center", color)}>
+      <div className={cn("w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0", color)}>
         {icon}
       </div>
     </motion.div>
