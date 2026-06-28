@@ -57,11 +57,13 @@ import {
   ShieldAlert,
   CheckCircle2,
   Cpu,
-  Percent
+  Percent,
+  Crop
 } from 'lucide-react';
 import WalletPluginWidget from './components/WalletPluginWidget';
 import { ProfitCalculator } from './components/ProfitCalculator';
 import { LiveCurrencyRates } from './components/LiveCurrencyRates';
+import LogoEditorModal from './components/LogoEditorModal';
 import QRCode from 'qrcode';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -212,6 +214,32 @@ interface SystemSettings {
   monthlyAutoReportDay?: number;
   monthlyAutoReportFormat?: string;
   logoUrl?: string;
+  logoNavHeight?: number; // Logo display height specifically for top navigation menu
+}
+
+// --- Settings Context & State Management ---
+interface SettingsContextType {
+  settings: SystemSettings | null;
+  setSettings: React.Dispatch<React.SetStateAction<SystemSettings | null>>;
+}
+
+const SettingsContext = React.createContext<SettingsContextType | undefined>(undefined);
+
+export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  const [settings, setSettings] = useState<SystemSettings | null>(null);
+  return (
+    <SettingsContext.Provider value={{ settings, setSettings }}>
+      {children}
+    </SettingsContext.Provider>
+  );
+}
+
+export function useSettings() {
+  const context = React.useContext(SettingsContext);
+  if (!context) {
+    throw new Error('useSettings must be used within a SettingsProvider');
+  }
+  return context;
 }
 
 interface SystemLog {
@@ -247,6 +275,68 @@ interface Feedback {
   timestamp: any;
   status: 'NEW' | 'IN_PROGRESS' | 'RESOLVED';
 }
+
+export const resizeAndCompressImage = (
+  base64OrFile: string | File,
+  maxWidth: number,
+  maxHeight: number,
+  quality: number = 0.7
+): Promise<string> => {
+  return new Promise((resolve) => {
+    const handleBase64 = (base64: string) => {
+      if (!base64.startsWith('data:image/')) {
+        resolve(base64);
+        return;
+      }
+      const img = new Image();
+      img.src = base64;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height *= maxWidth / width;
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width *= maxHeight / height;
+            height = maxHeight;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve(base64);
+        }
+      };
+      img.onerror = () => {
+        resolve(base64);
+      };
+    };
+
+    if (base64OrFile instanceof File) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        handleBase64(result);
+      };
+      reader.onerror = () => {
+        resolve('');
+      };
+      reader.readAsDataURL(base64OrFile);
+    } else {
+      handleBase64(base64OrFile);
+    }
+  });
+};
 
 export const writeSystemLog = async (
   isOffline: boolean,
@@ -496,8 +586,8 @@ const ReceiverCard: React.FC<ReceiverCardProps> = ({ rec, myCustomers, startEdit
   );
 };
 
-// --- App Component ---
-export default function App() {
+// --- App Component Content ---
+function AppContent() {
   const [isPluginMode] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('mode') === 'plugin' || params.get('embed') === 'true' || params.get('plugin') === 'true';
@@ -515,6 +605,128 @@ export default function App() {
 
   // User profile customization and camera states
   const [showProfileModal, setShowProfileModal] = useState(false);
+
+  // Global settings loading for branding
+  const { settings, setSettings } = useSettings();
+
+  useEffect(() => {
+    if (isOffline) {
+      const loadLocalSettings = () => {
+        try {
+          const localSettings = JSON.parse(localStorage.getItem('sandbox_settings') || '{"usdToBdt":120,"eurToBdt":130,"commissionPercent":2,"agentCommission":1.5}');
+          setSettings(localSettings);
+        } catch {
+          setSettings({ usdToBdt: 120, eurToBdt: 130, commissionPercent: 2, agentCommission: 1.5 });
+        }
+      };
+      loadLocalSettings();
+      window.addEventListener('storage', loadLocalSettings);
+      return () => window.removeEventListener('storage', loadLocalSettings);
+    } else {
+      const uSettings = onSnapshot(doc(db, 'settings', 'global'), (s) => {
+        if (s.exists()) {
+          setSettings(s.data() as SystemSettings);
+        } else {
+          setSettings({ usdToBdt: 120, eurToBdt: 130, commissionPercent: 2, agentCommission: 1.5 });
+        }
+      }, (err) => {
+        console.warn('Silent settings loading bypassed due to Firestore permissions:', err);
+      });
+      return () => uSettings();
+    }
+  }, [isOffline]);
+
+  // Hoisted Print Preview Modal States
+  const [showPrintPreviewModal, setShowPrintPreviewModal] = useState(false);
+  const [selectedThermalTx, setSelectedThermalTx] = useState<Transaction | null>(null);
+  const [previewTxType, setPreviewTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('58mm');
+  const [receiptFont, setReceiptFont] = useState<'mono' | 'sans'>('mono');
+  const [receiptFontSize, setReceiptFontSize] = useState<'normal' | 'large'>('normal');
+  const [receiptTitle, setReceiptTitle] = useState('OFFICIAL RECEIPT');
+  const [receiptIncludeTime, setReceiptIncludeTime] = useState(true);
+  const [receiptCustomFooter, setReceiptCustomFooter] = useState('Thank you for choosing our service!');
+  const [includeCustomerPhone, setIncludeCustomerPhone] = useState(true);
+  const [includeAgentId, setIncludeAgentId] = useState(true);
+  const [printSettingsTab, setPrintSettingsTab] = useState<'layout' | 'options'>('layout');
+
+  const handlePrintThermalReceipt = () => {
+    const receiptEl = document.getElementById('thermal-receipt-content');
+    if (!receiptEl) return;
+    
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(`
+        <html>
+          <head>
+            <title>Print Thermal Receipt</title>
+            <style>
+              @page {
+                margin: 0;
+              }
+              body {
+                font-family: ${receiptFont === 'mono' ? '"JetBrains Mono", monospace, "Courier New"' : '"Inter", sans-serif'};
+                padding: 10px;
+                margin: 0;
+                width: ${receiptWidth === '58mm' ? '54mm' : '76mm'};
+                background: #fff;
+                color: #000;
+                font-size: ${receiptFontSize === 'large' ? '12px' : '10px'};
+                line-height: 1.3;
+              }
+              .center { text-align: center; }
+              .right { text-align: right; }
+              .bold { font-weight: bold; }
+              .dashed-line {
+                border-top: 1px dashed #000;
+                margin: 6px 0;
+              }
+              .flex-between {
+                display: flex;
+                justify-content: space-between;
+              }
+              .header-title {
+                font-size: ${receiptFontSize === 'large' ? '16px' : '13px'};
+                font-weight: bold;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+              }
+              .mt-2 { margin-top: 8px; }
+              .mb-2 { margin-bottom: 8px; }
+              .barcode {
+                border: 1px solid #000;
+                padding: 4px;
+                text-align: center;
+                font-size: 8px;
+                margin: 10px auto;
+                width: 80%;
+                letter-spacing: 2px;
+              }
+            </style>
+          </head>
+          <body onload="window.print(); setTimeout(function(){ window.frameElement.remove(); }, 1000)">
+            \${receiptEl.innerHTML}
+          </body>
+        </html>
+      `);
+      doc.close();
+    }
+  };
+
+  const handleClosePrintPreview = () => {
+    setShowPrintPreviewModal(false);
+    setSelectedThermalTx(null);
+  };
   
   // Feedback states
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -973,6 +1185,7 @@ export default function App() {
         isOffline={isOffline} 
         onToggleOffline={toggleOfflineMode} 
         onBypass={handleBypass} 
+        settings={settings}
       />
     );
   }
@@ -1024,9 +1237,21 @@ export default function App() {
       )}
       <nav className="sticky top-0 z-50 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
-            <Wallet size={20} />
-          </div>
+          {settings?.logoUrl ? (
+            <div className="flex items-center justify-center">
+              <img 
+                src={settings.logoUrl} 
+                alt="Logo" 
+                style={{ height: `${settings.logoNavHeight || 32}px` }}
+                className="w-auto max-w-[150px] object-contain rounded-sm" 
+                referrerPolicy="no-referrer" 
+              />
+            </div>
+          ) : (
+            <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
+              <Wallet size={20} />
+            </div>
+          )}
           <div>
             <div className="flex items-center gap-2">
               <h1 className="font-bold text-base leading-tight tracking-tight">WalletPro</h1>
@@ -1113,7 +1338,18 @@ export default function App() {
           >
             {profile.role === 'ADMIN' && <AdminDashboard key="admin" profile={profile} isOffline={isOffline} />}
             {profile.role === 'AGENT' && <AgentDashboard key="agent" profile={profile} isOffline={isOffline} />}
-            {profile.role === 'CUSTOMER' && <CustomerDashboard key="customer" profile={profile} isOffline={isOffline} />}
+            {profile.role === 'CUSTOMER' && (
+              <CustomerDashboard 
+                key="customer" 
+                profile={profile} 
+                isOffline={isOffline} 
+                onTriggerPrint={(tx) => {
+                  setSelectedThermalTx(tx);
+                  setPreviewTxType(tx.type);
+                  setShowPrintPreviewModal(true);
+                }}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -1197,15 +1433,15 @@ export default function App() {
                       accept="image/*"
                       className="hidden"
                       id="profile-pic-file"
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            const base64Str = event.target?.result as string;
-                            setTempPhotoURL(base64Str);
-                          };
-                          reader.readAsDataURL(file);
+                          try {
+                            const compressed = await resizeAndCompressImage(file, 200, 200, 0.7);
+                            setTempPhotoURL(compressed);
+                          } catch (err) {
+                             console.error("Error compressing profile pic:", err);
+                          }
                         }
                       }}
                     />
@@ -1487,6 +1723,423 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Global Thermal Receipt Print Preview Modal Overlay */}
+      <AnimatePresence>
+        {showPrintPreviewModal && selectedThermalTx && (
+          <div className="fixed inset-0 z-55 flex items-center justify-center p-4 md:p-6 select-none font-sans">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={handleClosePrintPreview}
+              className="absolute inset-0 bg-slate-900/65 backdrop-blur-sm shadow-2xl animate-fade-in"
+            />
+
+            {/* Modal Container */}
+            <motion.div 
+              initial={{ opacity: 0, y: 35, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 35, scale: 0.97 }}
+              className="relative bg-white rounded-3xl shadow-2xl border border-slate-150 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden z-10"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 bg-indigo-50 text-indigo-650 rounded-2xl">
+                    <Printer size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">Thermal Receipt Print Preview</h3>
+                    <p className="text-[11px] text-slate-500 font-semibold">Format and style your receipt before printing to standard roll printers</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleClosePrintPreview}
+                  className="p-2 hover:bg-slate-150 text-slate-400 hover:text-slate-700 rounded-full transition-colors cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Split Content Area */}
+              <div className="flex-1 overflow-y-auto p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 bg-slate-50/20">
+                
+                {/* Left Column: Customizing & Styling Options */}
+                <div className="space-y-6 text-left">
+                  {/* Selector Tabs */}
+                  <div className="flex bg-slate-100/85 p-1 rounded-2xl border border-slate-200/50">
+                    <button 
+                      type="button"
+                      onClick={() => setPrintSettingsTab('layout')}
+                      className={cn(
+                        "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer",
+                        printSettingsTab === 'layout' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                      )}
+                    >
+                      Layout Options
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => setPrintSettingsTab('options')}
+                      className={cn(
+                        "flex-1 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl transition-all cursor-pointer",
+                        printSettingsTab === 'options' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                      )}
+                    >
+                      Included Data
+                    </button>
+                  </div>
+
+                  {printSettingsTab === 'layout' ? (
+                    <div className="space-y-5 font-sans">
+                      {/* Paper size */}
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                          Receipt Paper Width
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { value: '58mm', label: '58 mm (Standard)' },
+                            { value: '80mm', label: '80 mm (Wide Roll)' }
+                          ].map(item => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => setReceiptWidth(item.value as any)}
+                              className={cn(
+                                "py-3 text-xs font-bold rounded-xl border transition-all cursor-pointer",
+                                receiptWidth === item.value 
+                                  ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              )}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Font pairing */}
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                          Typography Style
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { value: 'mono', label: 'JetBrains Mono' },
+                            { value: 'sans', label: 'Inter Sans-serif' }
+                          ].map(item => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => setReceiptFont(item.value as any)}
+                              className={cn(
+                                "py-3 text-xs font-bold rounded-xl border transition-all cursor-pointer",
+                                receiptFont === item.value 
+                                  ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              )}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Font Size */}
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                          Output Text Size
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            { value: 'normal', label: '9pt (Compact)' },
+                            { value: 'large', label: '11pt (Clear)' }
+                          ].map(item => (
+                            <button
+                              key={item.value}
+                              type="button"
+                              onClick={() => setReceiptFontSize(item.value as any)}
+                              className={cn(
+                                "py-3 text-xs font-bold rounded-xl border transition-all cursor-pointer",
+                                receiptFontSize === item.value 
+                                  ? "bg-slate-900 border-slate-900 text-white shadow-sm" 
+                                  : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                              )}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Receipt title text */}
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                          Receipt Header Title
+                        </label>
+                        <input 
+                          type="text"
+                          value={receiptTitle}
+                          onChange={e => setReceiptTitle(e.target.value)}
+                          placeholder="e.g. OFFICIAL RECEIPT"
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-xs text-slate-800 font-medium focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-4 font-sans">
+                      {/* Toggle Options */}
+                      <div className="flex items-center gap-2.5 p-1">
+                        <input 
+                          type="checkbox"
+                          id="receipt-include-phone"
+                          checked={includeCustomerPhone}
+                          onChange={e => setIncludeCustomerPhone(e.target.checked)}
+                          className="w-4 h-4 text-indigo-600 border-slate-250 rounded focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <label htmlFor="receipt-include-phone" className="text-xs font-bold text-slate-700 cursor-pointer select-none font-sans">
+                          Include Customer ID/Phone block
+                        </label>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 p-1">
+                        <input 
+                          type="checkbox"
+                          id="receipt-include-agent"
+                          checked={includeAgentId}
+                          onChange={e => setIncludeAgentId(e.target.checked)}
+                          className="w-4 h-4 text-indigo-600 border-slate-250 rounded focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <label htmlFor="receipt-include-agent" className="text-xs font-bold text-slate-700 cursor-pointer select-none font-sans">
+                          Display Agent Origin details
+                        </label>
+                      </div>
+
+                      <div className="flex items-center gap-2.5 p-1">
+                        <input 
+                          type="checkbox"
+                          id="receipt-include-time"
+                          checked={receiptIncludeTime}
+                          onChange={e => setReceiptIncludeTime(e.target.checked)}
+                          className="w-4 h-4 text-indigo-600 border-slate-250 rounded focus:ring-indigo-500 cursor-pointer"
+                        />
+                        <label htmlFor="receipt-include-time" className="text-xs font-bold text-slate-700 cursor-pointer select-none font-sans">
+                          Include current date & timestamp
+                        </label>
+                      </div>
+
+                      {/* Footer Input */}
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
+                          Custom Footer Note
+                        </label>
+                        <textarea 
+                          rows={2}
+                          value={receiptCustomFooter}
+                          onChange={e => setReceiptCustomFooter(e.target.value)}
+                          placeholder="e.g. Please verify wallet balance"
+                          className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-xs text-slate-800 font-medium focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all resize-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Live Thermal Print Simulator */}
+                <div className="flex flex-col items-center justify-center bg-slate-100/80 p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-inner overflow-y-auto max-h-[500px]">
+                  <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-3 select-none">
+                    Printer Simulator Canvas
+                  </span>
+
+                  {/* Standard Thermal roll wrapper */}
+                  {(() => {
+                    const printTxType = selectedThermalTx.type;
+                    const printTxId = selectedThermalTx.transitionId || selectedThermalTx.id;
+                    const printAmount = selectedThermalTx.amount;
+                    const printMethod = selectedThermalTx.method;
+                    const printSenderName = selectedThermalTx.senderName || selectedThermalTx.customerName || 'N/A';
+                    const printSenderId = selectedThermalTx.senderId || selectedThermalTx.customerId || 'N/A';
+                    const printReceiverName = selectedThermalTx.receiverName || 'N/A';
+                    const printReceiverPhone = selectedThermalTx.receiverPhone || 'N/A';
+                    const printReceiverBankName = selectedThermalTx.receiverBankName || 'N/A';
+                    const printReceiverBankAccountNumber = selectedThermalTx.receiverBankAccountNumber || 'N/A';
+                    const printReceiverAccountName = selectedThermalTx.receiverAccountName || '';
+                    const printStatus = selectedThermalTx.status;
+                    
+                    let printDateStr = '';
+                    if (selectedThermalTx.timestamp) {
+                      const ts = selectedThermalTx.timestamp;
+                      if (typeof ts.toDate === 'function') {
+                        printDateStr = ts.toDate().toLocaleString();
+                      } else if (ts.seconds) {
+                        printDateStr = new Date(ts.seconds * 1000).toLocaleString();
+                      } else {
+                        printDateStr = new Date(ts).toLocaleString();
+                      }
+                    } else {
+                      printDateStr = receiptIncludeTime ? new Date().toLocaleString() : new Date().toLocaleDateString();
+                    }
+
+                    return (
+                      <div 
+                        id="thermal-receipt-content" 
+                        className={cn(
+                          "p-6 bg-white text-black border border-zinc-300 shadow-lg transition-all",
+                          receiptFont === 'mono' ? 'font-mono' : 'font-sans',
+                          receiptWidth === '58mm' ? 'w-[260px]' : 'w-[350px]'
+                        )}
+                      >
+                        <div className="text-center">
+                          {settings?.logoUrl && (
+                            <div className="flex justify-center mb-2">
+                              <img src={settings.logoUrl} alt="Logo" className="h-8 max-w-[120px] object-contain rounded-sm" referrerPolicy="no-referrer" />
+                            </div>
+                          )}
+                          <div className={cn("font-black uppercase tracking-wider mb-1 leading-tight", receiptFontSize === 'large' ? 'text-sm' : 'text-xs')}>
+                            {receiptTitle}
+                          </div>
+                          <div className="text-[9px] font-bold tracking-tight">
+                            OFFICIAL RECEIPT SLIP
+                          </div>
+                          {includeAgentId && (
+                            <>
+                              <div className="text-[8px] mt-1 font-medium">
+                                Agent Name: {selectedThermalTx.agentName || 'Central Office'}
+                              </div>
+                              <div className="text-[8px] font-medium">
+                                Agent ID: {selectedThermalTx.agentId || 'N/A'}
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                        <div className="space-y-0.5 text-[8px] leading-tight text-left">
+                          <div className="flex justify-between">
+                            <span>TRANSACTION:</span>
+                            <span className="font-bold uppercase">{printTxType} REQUEST</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>STATUS:</span>
+                            <span className="font-bold uppercase">{printStatus}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>TIMESTAMP:</span>
+                            <span>{printDateStr}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>REFERENCE:</span>
+                            <span className="font-bold font-mono">{printTxId}</span>
+                          </div>
+                        </div>
+
+                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                        {printTxType === 'DEPOSIT' ? (
+                          <div className="space-y-1 text-[8px] leading-tight text-left">
+                            <div className="flex justify-between font-bold">
+                              <span>DEPOSIT AMOUNT:</span>
+                              <span>${printAmount.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Payment Method:</span>
+                              <span className="uppercase font-bold">{printMethod || 'Bank'}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-1 text-[8px] leading-tight text-left">
+                            {includeCustomerPhone && (
+                              <div>
+                                <span className="font-bold">CUSTOMER (SENDER)</span>
+                                <div className="pl-1.5 font-mono text-[7px]">{printSenderName} ({printSenderId})</div>
+                              </div>
+                            )}
+                            <div className="mt-1">
+                              <span className="font-bold">RECEIVER (RECIPIENT)</span>
+                              <div className="pl-1.5 font-mono text-[7px]">{printReceiverName} ({printReceiverPhone})</div>
+                              <div className="pl-1.5 font-mono text-[7px]">Method: {printMethod}</div>
+                              {printMethod === 'Bank' ? (
+                                <div className="pl-1.5 text-[7px] italic">
+                                  Bank: {printReceiverBankName} - A/C: {printReceiverBankAccountNumber}
+                                </div>
+                              ) : (
+                                printReceiverAccountName && (
+                                  <div className="pl-1.5 text-[7px] italic">
+                                    Holder Name: {printReceiverAccountName}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                        <div className="space-y-0.5 text-[8px] leading-tight text-left">
+                          <div className="flex justify-between font-black text-[10px]">
+                            <span>TOTAL VALUE:</span>
+                            <span>${printAmount.toFixed(2)}</span>
+                          </div>
+                          {printTxType === 'WITHDRAWAL' ? (
+                            <>
+                              <div className="flex justify-between">
+                                <span>CONV. RATE:</span>
+                                <span>1 USD = {selectedThermalTx.conversionRate || settings?.usdToBdt || 120} BDT</span>
+                              </div>
+                              <div className="flex justify-between font-bold text-[9px] mt-0.5">
+                                <span>PAYOUT (BDT):</span>
+                                <span>৳{(printAmount * (selectedThermalTx.conversionRate || settings?.usdToBdt || 120)).toFixed(2)}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex justify-between">
+                              <span>SERVICE FEE:</span>
+                              <span>$0.00 (FREE)</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                        <div className="text-center text-[7px] space-y-1.5 leading-tight">
+                          {receiptCustomFooter && <p className="italic">{receiptCustomFooter}</p>}
+                          <div className="barcode border border-black py-1.5 px-1 max-w-[120px] mx-auto text-[6px] tracking-[2px] font-mono select-none">
+                            ||||||| | |||| | ||||||
+                            <div className="text-[5px] tracking-normal font-sans mt-0.5 uppercase font-bold">*{printTxId}*</div>
+                          </div>
+                          <p className="text-[6px] text-zinc-500 font-sans mt-0.5">Wallet Pro terminal. Secure receipt slip.</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              {/* Footer Controls */}
+              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <button 
+                  onClick={handleClosePrintPreview}
+                  className="w-full sm:w-auto text-center px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs transition-colors font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button"
+                  onClick={handlePrintThermalReceipt}
+                  className="w-full sm:w-auto justify-center px-6 py-2.5 bg-zinc-900 hover:bg-black text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
+                >
+                  <Printer size={14} /> 
+                  <span>Print Thermal Receipt</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1497,12 +2150,14 @@ function AuthScreen({
   onLogin, 
   isOffline, 
   onToggleOffline, 
-  onBypass 
+  onBypass,
+  settings
 }: { 
   onLogin: () => void;
   isOffline: boolean;
   onToggleOffline: (val: boolean) => void;
   onBypass: (role: Role) => void;
+  settings: SystemSettings | null;
 }) {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -1669,10 +2324,18 @@ function AuthScreen({
         className="w-full max-w-md bg-white p-8 md:p-10 rounded-[2.5rem] shadow-2xl shadow-indigo-150/40 border border-slate-100"
       >
         <div className="flex flex-col items-center mb-6 text-center">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-indigo-600/30">
-            <Wallet size={32} />
-          </div>
-          <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">WalletPro System</h2>
+          {settings?.logoUrl ? (
+            <div className="flex items-center justify-center mb-4">
+              <img src={settings.logoUrl} alt="Logo" className="h-16 w-auto max-w-[200px] object-contain rounded-xl" referrerPolicy="no-referrer" />
+            </div>
+          ) : (
+            <>
+              <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center text-white mb-4 shadow-lg shadow-indigo-600/30">
+                <Wallet size={32} />
+              </div>
+              <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">WalletPro System</h2>
+            </>
+          )}
           <p className="text-slate-500 text-sm mt-1">Multi-Role Financial Wallet & Remittance Portal</p>
         </div>
 
@@ -2261,6 +2924,14 @@ function RegisterScreen({ onRegister, onBack, userEmail }: { onRegister: (role: 
   );
 }
 
+export default function App() {
+  return (
+    <SettingsProvider>
+      <AppContent />
+    </SettingsProvider>
+  );
+}
+
 function PendingScreen({ onLogout }: { onLogout: () => void }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
@@ -2288,7 +2959,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [customers, setCustomers] = useState<UserProfile[]>([]);
   const [pendingTransactions, setPendingTransactions] = useState<Transaction[]>([]);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
-  const [settings, setSettings] = useState<SystemSettings | null>(null);
+  const { settings, setSettings } = useSettings();
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
   const [adminSearchQuery, setAdminSearchQuery] = useState('');
   const [activeAgentSearchQuery, setActiveAgentSearchQuery] = useState('');
@@ -2379,7 +3050,9 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       return `${diffDay}d ago`;
     }
   };
-  const [reportTimeframe, setReportTimeframe] = useState<'7d' | '30d' | 'all'>('all');
+  const [reportTimeframe, setReportTimeframe] = useState<'7d' | '30d' | 'all' | 'custom'>('all');
+  const [customStartDate, setCustomStartDate] = useState<string>('');
+  const [customEndDate, setCustomEndDate] = useState<string>('');
   const [viewDoc, setViewDoc] = useState<{ name: string, type: string, base64: string } | null>(null);
   const [selectedTxDetails, setSelectedTxDetails] = useState<Transaction | null>(null);
 
@@ -2398,16 +3071,80 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [fbSeverityFilter, setFbSeverityFilter] = useState<'ALL' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'>('ALL');
   const [fbStatusFilter, setFbStatusFilter] = useState<'ALL' | 'NEW' | 'IN_PROGRESS' | 'RESOLVED'>('ALL');
   const [fbSearchQuery, setFbSearchQuery] = useState('');
+  const [autoNotifyFeedbackResolved, setAutoNotifyFeedbackResolved] = useState<boolean>(() => {
+    return localStorage.getItem('auto_notify_feedback_resolved') === 'true';
+  });
+
+  const handleToggleAutoNotifyFeedback = (checked: boolean) => {
+    setAutoNotifyFeedbackResolved(checked);
+    localStorage.setItem('auto_notify_feedback_resolved', String(checked));
+  };
+
+  const sendFeedbackResolvedEmail = async (fb: Feedback) => {
+    try {
+      const emailAddress = fb.email || 'customer@walletpro.com';
+      const subject = `[WalletPro] Feedback Resolved: Ticket #${fb.id}`;
+      const body = `Dear ${fb.userName || 'User'},\n\nWe are pleased to inform you that your feedback/bug report has been resolved by our Support Team.\n\nFeedback Details:\n- Ticket ID: ${fb.id}\n- Category: ${fb.type}\n- Severity: ${fb.severity || 'MEDIUM'}\n- Description: ${fb.description}\n- Status: RESOLVED\n\nThank you for helping us improve WalletPro!\n\nBest regards,\nThe WalletPro Support Team`;
+
+      if (isOffline) {
+        const localEmailLogs: EmailLog[] = JSON.parse(localStorage.getItem('sandbox_email_logs') || '[]');
+        const newEmailLog: EmailLog = {
+          id: `email_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          transactionId: fb.id || '',
+          customerName: fb.userName || 'User',
+          customerEmail: emailAddress,
+          customerPhone: 'N/A',
+          subject,
+          body,
+          pdfAttachedName: 'N/A',
+          sentAt: Date.now(),
+          status: 'SENT'
+        };
+        localEmailLogs.unshift(newEmailLog);
+        localStorage.setItem('sandbox_email_logs', JSON.stringify(localEmailLogs));
+        setEmailLogs(localEmailLogs);
+      } else {
+        await addDoc(collection(db, 'email_logs'), {
+          transactionId: fb.id || '',
+          customerName: fb.userName || 'User',
+          customerEmail: emailAddress,
+          customerPhone: 'N/A',
+          subject,
+          body,
+          pdfAttachedName: 'N/A',
+          sentAt: serverTimestamp(),
+          status: 'SENT'
+        });
+      }
+
+      await writeSystemLog(isOffline, 'TX_APPROVE', `Feedback auto-email notification sent to ${emailAddress} for Ticket #${fb.id}`, {
+        uid: 'system',
+        email: 'system@walletpro.com',
+        phone: 'N/A',
+        name: 'System Automator',
+        role: 'SYSTEM'
+      } as any);
+    } catch (error) {
+      console.error("Failed to send feedback resolved email", error);
+    }
+  };
 
   const handleUpdateFeedbackStatus = async (fbId: string, newStatus: 'NEW' | 'IN_PROGRESS' | 'RESOLVED') => {
     try {
+      let targetFb: Feedback | undefined;
       if (isOffline) {
         const localFeedbacks: Feedback[] = JSON.parse(localStorage.getItem('sandbox_feedbacks') || '[]');
+        targetFb = localFeedbacks.find(f => f.id === fbId);
         const updated = localFeedbacks.map(f => f.id === fbId ? { ...f, status: newStatus } : f);
         localStorage.setItem('sandbox_feedbacks', JSON.stringify(updated));
         setFeedbacks(updated);
       } else {
+        targetFb = feedbacks.find(f => f.id === fbId);
         await updateDoc(doc(db, 'feedback', fbId), { status: newStatus });
+      }
+
+      if (newStatus === 'RESOLVED' && autoNotifyFeedbackResolved && targetFb) {
+        await sendFeedbackResolvedEmail(targetFb);
       }
     } catch (err: any) {
       console.error("Failed to update feedback status:", err);
@@ -2589,6 +3326,9 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [invoiceContactInput, setInvoiceContactInput] = useState('');
   const [invoiceDisclaimerInput, setInvoiceDisclaimerInput] = useState('');
   const [logoInput, setLogoInput] = useState('');
+  const [logoNavHeightInput, setLogoNavHeightInput] = useState<number>(32);
+  const [isLogoEditorOpen, setIsLogoEditorOpen] = useState(false);
+  const [logoEditorSrc, setLogoEditorSrc] = useState('');
   const [enableMonthlyAutoReports, setEnableMonthlyAutoReports] = useState(false);
   const [monthlyAutoReportDay, setMonthlyAutoReportDay] = useState('1');
   const [monthlyAutoReportFormat, setMonthlyAutoReportFormat] = useState('PDF_AND_SUMMARY');
@@ -2714,6 +3454,28 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const filteredReportTransactions = useMemo(() => {
     if (reportTimeframe === 'all') return allTransactions;
     
+    if (reportTimeframe === 'custom') {
+      const startMs = customStartDate ? new Date(customStartDate + "T00:00:00").getTime() : 0;
+      const endMs = customEndDate ? new Date(customEndDate + "T23:59:59").getTime() : Infinity;
+      
+      return allTransactions.filter(tx => {
+        if (!tx.timestamp) return false;
+        let ms = 0;
+        if (typeof tx.timestamp.toDate === 'function') {
+          ms = tx.timestamp.toDate().getTime();
+        } else if (tx.timestamp.seconds !== undefined) {
+          ms = tx.timestamp.seconds * 1000;
+        } else if (typeof tx.timestamp === 'number') {
+          ms = tx.timestamp;
+        } else if (tx.timestamp instanceof Date) {
+          ms = tx.timestamp.getTime();
+        } else {
+          ms = new Date(tx.timestamp).getTime();
+        }
+        return ms >= startMs && ms <= endMs;
+      });
+    }
+    
     const now = Date.now();
     const daysLimit = reportTimeframe === '7d' ? 7 : 30;
     const limitMs = daysLimit * 24 * 60 * 60 * 1000;
@@ -2729,10 +3491,12 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         ms = tx.timestamp;
       } else if (tx.timestamp instanceof Date) {
         ms = tx.timestamp.getTime();
+      } else {
+        ms = new Date(tx.timestamp).getTime();
       }
       return (now - ms) <= limitMs;
     });
-  }, [allTransactions, reportTimeframe]);
+  }, [allTransactions, reportTimeframe, customStartDate, customEndDate]);
 
   const adminSuccessfulDeposits = useMemo(() => {
     const list = allTransactions.filter(tx => tx.type === 'DEPOSIT' && tx.status === 'APPROVED');
@@ -3147,6 +3911,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       setInvoiceContactInput(settings.invoiceContactInfo ?? 'Tel: +1 (555) 0199 | Email: billing@walletpro.com | Web: www.walletpro.com');
       setInvoiceDisclaimerInput(settings.invoiceDisclaimer ?? 'Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference.');
       setLogoInput(settings.logoUrl ?? '');
+      setLogoNavHeightInput(settings.logoNavHeight ?? 32);
       setEnableMonthlyAutoReports(settings.enableMonthlyAutoReports ?? false);
       setMonthlyAutoReportDay((settings.monthlyAutoReportDay ?? 1).toString());
       setMonthlyAutoReportFormat(settings.monthlyAutoReportFormat ?? 'PDF_AND_SUMMARY');
@@ -3176,6 +3941,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         invoiceContactInfo: invoiceContactInput.trim() || 'Tel: +1 (555) 0199 | Email: billing@walletpro.com | Web: www.walletpro.com',
         invoiceDisclaimer: invoiceDisclaimerInput.trim() || 'Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference.',
         logoUrl: logoInput.trim(),
+        logoNavHeight: logoNavHeightInput,
         enableMonthlyAutoReports,
         monthlyAutoReportDay: parseInt(monthlyAutoReportDay) || 1,
         monthlyAutoReportFormat,
@@ -3603,9 +4369,15 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       {/* Sidebar Navigation */}
       <aside className="w-72 bg-white border border-slate-200 rounded-[2rem] p-6 md:block hidden shrink-0 self-start shadow-sm sticky top-6">
         <div className="flex items-center gap-3 mb-8 px-2">
-          <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-md">
-            <ShieldCheck size={20} />
-          </div>
+          {settings?.logoUrl ? (
+            <div className="w-10 h-10 bg-white border border-slate-150 rounded-2xl flex items-center justify-center p-1.5 shadow-xs overflow-hidden shrink-0">
+              <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-md" referrerPolicy="no-referrer" />
+            </div>
+          ) : (
+            <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-md shrink-0">
+              <ShieldCheck size={20} />
+            </div>
+          )}
           <div>
             <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase leading-none">Admin Hub</h2>
             <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md mt-1 inline-block">SYSTEM SUPERVISOR</span>
@@ -3682,9 +4454,15 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               <div>
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm">
-                      <ShieldCheck size={16} />
-                    </div>
+                    {settings?.logoUrl ? (
+                      <div className="w-8 h-8 bg-white border border-slate-150 rounded-xl flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
+                        <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-sm" referrerPolicy="no-referrer" />
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm shrink-0">
+                        <ShieldCheck size={16} />
+                      </div>
+                    )}
                     <span className="font-extrabold text-sm text-slate-850 uppercase tracking-tight">Admin Hub</span>
                   </div>
                   <button onClick={() => setMobileSidebarOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
@@ -3950,23 +4728,53 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             </p>
           </div>
           
-          <div className="flex gap-2 bg-slate-100 p-1 rounded-xl">
-            {(['all', '30d', '7d'] as const).map((tf) => (
+          <div className="flex flex-wrap gap-2 bg-slate-100 p-1 rounded-xl">
+            {(['all', '30d', '7d', 'custom'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setReportTimeframe(tf)}
                 className={cn(
-                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider",
+                  "px-4 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider cursor-pointer",
                   reportTimeframe === tf 
                     ? "bg-white text-slate-900 shadow-sm shadow-indigo-100" 
                     : "text-slate-500 hover:text-slate-900"
                 )}
               >
-                {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : '7 Days'}
+                {tf === 'all' ? 'All Time' : tf === '30d' ? '30 Days' : tf === '7d' ? '7 Days' : 'Custom'}
               </button>
             ))}
           </div>
         </div>
+
+        {reportTimeframe === 'custom' && (
+          <div className="flex flex-wrap items-center gap-4 p-4 bg-slate-50 border border-slate-150 rounded-2xl mb-6 font-sans">
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Start Date</span>
+              <input 
+                type="date"
+                value={customStartDate}
+                onChange={e => setCustomStartDate(e.target.value)}
+                className="p-2 text-xs font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">End Date</span>
+              <input 
+                type="date"
+                value={customEndDate}
+                onChange={e => setCustomEndDate(e.target.value)}
+                className="p-2 text-xs font-semibold text-slate-800 bg-white border border-slate-200 rounded-xl outline-none focus:border-indigo-500 transition-colors cursor-pointer"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => { setCustomStartDate(''); setCustomEndDate(''); }}
+              className="px-4 py-2 bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm self-end"
+            >
+              Clear Range
+            </button>
+          </div>
+        )}
 
         {/* Mini stats grid for the active timeframe report */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 border-b border-slate-100 pb-6">
@@ -4886,9 +5694,9 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                       </div>
 
                       <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-3">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">System Logo (Invoice & Print Output)</label>
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">System & Website Brand Logo</label>
                         <p className="text-[11px] text-slate-500 leading-normal">
-                          Provide a custom image URL, choose a default preset, or upload an image file (PNG/JPG) to show as your custom business brand in all print sheets and PDF statements.
+                          Provide a custom image URL, choose a default preset, or upload an image file (PNG/JPG) to show as your website brand header, login logo, and in all print sheets and PDF statements.
                         </p>
                         
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
@@ -4915,8 +5723,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                                   const file = e.target.files?.[0];
                                   if (file) {
                                     const reader = new FileReader();
-                                    reader.onloadend = () => {
-                                      setLogoInput(reader.result as string);
+                                    reader.onload = (event) => {
+                                      const res = event.target?.result as string;
+                                      setLogoEditorSrc(res);
+                                      setIsLogoEditorOpen(true);
                                     };
                                     reader.readAsDataURL(file);
                                   }
@@ -4969,18 +5779,60 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                           </div>
                         </div>
 
+                        {/* Logo Navigation Height Slider */}
+                        <div className="space-y-2 pt-3 border-t border-slate-150/60 mt-3 text-left">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Navigation Logo Height</span>
+                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{logoNavHeightInput}px</span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 leading-normal">Adjust how large or small the logo appears specifically in the top navigation bar menu.</p>
+                          <div className="flex items-center gap-3">
+                            <span className="text-[9px] font-mono font-bold text-slate-400">16px</span>
+                            <input
+                              type="range"
+                              min="16"
+                              max="80"
+                              value={logoNavHeightInput}
+                              onChange={(e) => setLogoNavHeightInput(parseInt(e.target.value))}
+                              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none"
+                            />
+                            <span className="text-[9px] font-mono font-bold text-slate-400">80px</span>
+                          </div>
+                        </div>
+
                         {/* Current Logo Preview */}
                         {logoInput && (
-                          <div className="pt-2 border-t border-slate-150/60 flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-xl border border-slate-200 overflow-hidden bg-white flex items-center justify-center shrink-0">
-                              <img src={logoInput} alt="Custom Business Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+                          <div className="pt-2 border-t border-slate-150/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-150 mt-2">
+                            <div className="flex items-center gap-3">
+                              <div className="w-12 h-12 rounded-xl border border-slate-200 overflow-hidden bg-white flex items-center justify-center shrink-0 shadow-2xs">
+                                <img src={logoInput} alt="Custom Business Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+                              </div>
+                              <div className="min-w-0 flex-1 text-left">
+                                <p className="text-[10px] font-extrabold text-slate-700">Logo Active Preview</p>
+                                <p className="text-[9px] font-semibold text-slate-400 font-mono truncate">{logoInput.startsWith('data:') ? 'Custom Base64 Image Data' : logoInput}</p>
+                              </div>
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-extrabold text-slate-700">Logo Active Preview</p>
-                              <p className="text-[9px] font-semibold text-slate-400 font-mono truncate">{logoInput.startsWith('data:') ? 'Custom Base64 Image Data' : logoInput}</p>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLogoEditorSrc(logoInput);
+                                setIsLogoEditorOpen(true);
+                              }}
+                              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-98 shrink-0"
+                            >
+                              <Crop size={12} /> Edit Logo Graphic
+                            </button>
                           </div>
                         )}
+
+                        <LogoEditorModal 
+                          isOpen={isLogoEditorOpen}
+                          onClose={() => setIsLogoEditorOpen(false)}
+                          imageSrc={logoEditorSrc}
+                          onSave={(editedBase64) => {
+                            setLogoInput(editedBase64);
+                          }}
+                        />
                       </div>
                     </div>
                   </div>
@@ -5332,6 +6184,18 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               <p className="text-xs text-slate-500 mt-1">
                 Manage, review, prioritize and resolve user feedback, suggestions, preferences, and bug reports in real-time.
               </p>
+              <div className="flex items-center gap-2 mt-3 bg-indigo-50/70 border border-indigo-100 rounded-xl px-3 py-1.5 w-fit">
+                <input 
+                  type="checkbox"
+                  id="auto-notify-resolved-email"
+                  checked={autoNotifyFeedbackResolved}
+                  onChange={e => handleToggleAutoNotifyFeedback(e.target.checked)}
+                  className="w-3.5 h-3.5 text-indigo-600 bg-white border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
+                />
+                <label htmlFor="auto-notify-resolved-email" className="text-[10px] font-bold text-indigo-900 cursor-pointer select-none">
+                  Auto-notify user via email when resolved
+                </label>
+              </div>
             </div>
             
             <div className="flex flex-wrap items-center gap-3">
@@ -5796,7 +6660,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                            src={selectedTxDetails.transitionFile.base64} 
                            alt={selectedTxDetails.transitionFile.name} 
                            referrerPolicy="no-referrer"
-                           className="max-h-[180px] object-contain rounded-xl border border-slate-200 shadow-sm print:max-h-[260px]"
+                           className="max-h-[180px] object-contain rounded-xl border border-slate-200 shadow-sm print:max-h-[260px] max-w-full w-auto"
                          />
                        </div>
                      )}
@@ -5818,30 +6682,30 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                </div>
 
                {/* Footer with Approve/Reject actions if the details modal is viewable for PENDING txs */}
-               <div className="px-6 py-4 border-t border-slate-150 bg-slate-50 flex items-center justify-between shrink-0 no-print">
+               <div className="px-5 sm:px-6 py-4 border-t border-slate-150 bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0 no-print">
                  <div className="flex items-center gap-2">
                    <button 
                      onClick={() => setSelectedTxDetails(null)}
-                     className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition-with-duration cursor-pointer"
+                     className="flex-1 sm:flex-none text-center px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition-with-duration cursor-pointer whitespace-nowrap"
                    >
                      Back to Admin
                    </button>
                    <button 
                      onClick={() => window.print()}
-                     className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 shadow-sm hover:shadow active:scale-95"
+                     className="flex-1 sm:flex-none text-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm hover:shadow active:scale-95 whitespace-nowrap"
                    >
                      <Printer size={13} /> Print Receipt
                    </button>
                  </div>
                  
                  {selectedTxDetails.status === 'PENDING' && (
-                   <div className="flex gap-2">
+                   <div className="flex gap-2 w-full sm:w-auto">
                      <button 
                        onClick={() => {
                          setTxConfirmAction({ tx: selectedTxDetails, action: 'APPROVED' });
                          setSelectedTxDetails(null);
                        }} 
-                       className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:translate-y-px cursor-pointer"
+                       className="flex-1 sm:flex-none text-center px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:translate-y-px cursor-pointer whitespace-nowrap"
                      >
                        Approve Request
                      </button>
@@ -5850,7 +6714,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                          setTxConfirmAction({ tx: selectedTxDetails, action: 'REJECTED' });
                          setSelectedTxDetails(null);
                        }} 
-                       className="px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all active:translate-y-px cursor-pointer"
+                       className="flex-1 sm:flex-none text-center px-4 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-all active:translate-y-px cursor-pointer whitespace-nowrap"
                      >
                        Reject
                      </button>
@@ -6270,7 +7134,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                      src={viewDoc.base64} 
                      alt={viewDoc.name}
                      referrerPolicy="no-referrer"
-                     className="max-h-[50vh] object-contain rounded-2xl border border-slate-200 shadow-sm"
+                     className="max-h-[50vh] object-contain rounded-2xl border border-slate-200 shadow-sm max-w-full w-auto"
                    />
                  ) : viewDoc.type.includes('pdf') ? (
                    <div className="w-full h-[50vh] flex flex-col items-center justify-center gap-3">
@@ -6349,17 +7213,32 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
    );
 }
 
-function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, isOffline?: boolean, key?: string }) {
+function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profile: UserProfile, isOffline?: boolean, onTriggerPrint?: (tx: Transaction) => void, key?: string }) {
   const [agentActiveTab, setAgentActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_HISTORY' | 'CUSTOMER_MANAGEMENT' | 'RECEIVER_MANAGEMENT' | 'SYSTEM_RATES' | 'DEPOSIT' | 'WITHDRAWAL' | 'FEEDBACK' | 'COMMISSIONS' | 'LIVE_CURRENCY'>('OVERVIEW');
   const [agentMobileSidebarOpen, setAgentMobileSidebarOpen] = useState(false);
   const [showForm, setShowForm] = useState<'DEPOSIT' | 'WITHDRAWAL' | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [settings, setSettings] = useState<SystemSettings>({ usdToBdt: 120, eurToBdt: 130, commissionPercent: 2, agentCommission: 1.5 });
+  const { settings: ctxSettings, setSettings } = useSettings();
+  const settings = ctxSettings || { usdToBdt: 120, eurToBdt: 130, commissionPercent: 2, agentCommission: 1.5 };
   const [ratesChanged, setRatesChanged] = useState(false);
   const prevSettingsRef = useRef<SystemSettings | null>(null);
   const hasFetchedSettingsRef = useRef(false);
   const [selectedCustomerForModal, setSelectedCustomerForModal] = useState<UserProfile | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Print Preview Modal States
+  const [showPrintPreviewModal, setShowPrintPreviewModal] = useState(false);
+  const [selectedThermalTx, setSelectedThermalTx] = useState<Transaction | null>(null);
+  const [previewTxType, setPreviewTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
+  const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('58mm');
+  const [receiptFont, setReceiptFont] = useState<'mono' | 'sans'>('mono');
+  const [receiptFontSize, setReceiptFontSize] = useState<'normal' | 'large'>('normal');
+  const [receiptTitle, setReceiptTitle] = useState('OFFICIAL RECEIPT');
+  const [receiptIncludeTime, setReceiptIncludeTime] = useState(true);
+  const [receiptCustomFooter, setReceiptCustomFooter] = useState('Thank you for choosing our service!');
+  const [includeCustomerPhone, setIncludeCustomerPhone] = useState(true);
+  const [includeAgentId, setIncludeAgentId] = useState(true);
+  const [printSettingsTab, setPrintSettingsTab] = useState<'layout' | 'options'>('layout');
 
   const handleCopy = (text: string, key: string) => {
     if (navigator.clipboard) {
@@ -6807,18 +7686,6 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [receiverBankAccountNumber, setReceiverBankAccountNumber] = useState('');
   const [receiverAccountName, setReceiverAccountName] = useState('');
 
-  // Print Preview Modal States
-  const [showPrintPreviewModal, setShowPrintPreviewModal] = useState(false);
-  const [previewTxType, setPreviewTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
-  const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('58mm');
-  const [receiptFont, setReceiptFont] = useState<'mono' | 'sans'>('mono');
-  const [receiptFontSize, setReceiptFontSize] = useState<'normal' | 'large'>('normal');
-  const [receiptTitle, setReceiptTitle] = useState('OFFICIAL RECEIPT');
-  const [receiptIncludeTime, setReceiptIncludeTime] = useState(true);
-  const [receiptCustomFooter, setReceiptCustomFooter] = useState('Thank you for choosing our service!');
-  const [includeCustomerPhone, setIncludeCustomerPhone] = useState(true);
-  const [includeAgentId, setIncludeAgentId] = useState(true);
-  const [printSettingsTab, setPrintSettingsTab] = useState<'layout' | 'options'>('layout');
   const [emailLogs, setEmailLogs] = useState<EmailLog[]>([]);
 
   // Receiver Management Active States
@@ -6864,7 +7731,23 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [newReceiverBankPhone, setNewReceiverBankPhone] = useState('');
   const [newReceiverAccountName, setNewReceiverAccountName] = useState('');
 
-  const generateInvoicePDF = (tx: Transaction) => {
+  const loadImage = (url: string): Promise<HTMLImageElement | null> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => resolve(img);
+      img.onerror = () => {
+        // Fallback: try loading without crossOrigin
+        const imgFallback = new Image();
+        imgFallback.onload = () => resolve(imgFallback);
+        imgFallback.onerror = () => resolve(null);
+        imgFallback.src = url;
+      };
+      img.src = url;
+    });
+  };
+
+  const generateInvoicePDF = (tx: Transaction, logoImg?: HTMLImageElement | null) => {
     // eslint-disable-next-line new-cap
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -6889,6 +7772,34 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     doc.setFont('Helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(isWd ? 'OFFICIAL DISBURSEMENT RECEIPT' : 'OFFICIAL TRANSIT RECEIPT', marginX, 30);
+
+    // If logo is available, render it on the right side of the banner
+    if (logoImg) {
+      try {
+        const maxW = 25;
+        const maxH = 18;
+        let w = logoImg.width;
+        let h = logoImg.height;
+        const ratio = w / h;
+        if (w > h) {
+          w = maxW;
+          h = maxW / ratio;
+        } else {
+          h = maxH;
+          w = maxH * ratio;
+        }
+        const logoY = 10 + (maxH - h) / 2;
+        const logoX = 190 - w; // align to right before right margin of 20mm
+        
+        // Draw a rounded white background card for the logo to ensure high contrast
+        doc.setFillColor(255, 255, 255);
+        doc.roundedRect(logoX - 2, logoY - 2, w + 4, h + 4, 2, 2, 'F');
+        
+        doc.addImage(logoImg, 'PNG', logoX, logoY, w, h);
+      } catch (err) {
+        console.error("Failed to render logo image inside jsPDF", err);
+      }
+    }
 
     // Decorative Highlight Line
     doc.setDrawColor(isWd ? 225 : 79, isWd ? 29 : 70, isWd ? 72 : 229); 
@@ -6983,38 +7894,98 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     doc.setDrawColor(226, 232, 240);
     doc.line(marginX, currentY, 210 - marginX, currentY);
 
+    // If it is a withdrawal, draw the Sender & Receiver Information Box
+    if (isWd) {
+      currentY += 8;
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      
+      // Draw background box for Sender & Receiver details
+      doc.setFillColor(248, 250, 252);
+      doc.rect(marginX, currentY, 170, 32, 'F');
+      doc.rect(marginX, currentY, 170, 32, 'S');
+      
+      // Vertical separator line inside the box
+      doc.line(marginX + 85, currentY, marginX + 85, currentY + 32);
+      
+      // Left section inside the box: SENDER (CUSTOMER)
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.text('SENDER (CUSTOMER) DETAILS', marginX + 6, currentY + 7);
+      
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Name: ${tx.senderName || 'N/A'}`, marginX + 6, currentY + 14);
+      doc.text(`Phone/ID: ${tx.senderId || 'N/A'}`, marginX + 6, currentY + 20);
+      doc.text(`Role: Originator`, marginX + 6, currentY + 26);
+      
+      // Right section inside the box: RECEIVER (RECIPIENT)
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.text('RECEIVER (RECIPIENT) DETAILS', marginX + 91, currentY + 7);
+      
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Name: ${tx.receiverName || 'N/A'}`, marginX + 91, currentY + 14);
+      doc.text(`Phone: ${tx.receiverPhone || 'N/A'}`, marginX + 91, currentY + 20);
+      
+      let methodDetails = `Method: ${tx.receiverMethod || tx.method || 'N/A'}`;
+      if (tx.method === 'Bank') {
+        const bankNameShort = tx.receiverBankName ? (tx.receiverBankName.length > 20 ? tx.receiverBankName.substring(0, 18) + '..' : tx.receiverBankName) : '';
+        const acNo = tx.receiverBankAccountNumber || '';
+        methodDetails = `Bank: ${bankNameShort} (A/C: ${acNo})`;
+      } else if (tx.receiverAccountName) {
+        methodDetails = `Method: ${tx.receiverMethod || tx.method} (${tx.receiverAccountName})`;
+      }
+      doc.text(methodDetails, marginX + 91, currentY + 26);
+      
+      currentY += 32;
+    }
+
     currentY += 15;
 
     // Total box
-    doc.setFillColor(248, 250, 252);
-    doc.rect(110, currentY, 80, 32, 'F');
-    doc.setDrawColor(226, 232, 240);
-    doc.rect(110, currentY, 80, 32, 'S');
-
-    doc.setTextColor(100, 116, 139);
-    doc.setFont('Helvetica', 'normal');
-    doc.setFontSize(8.5);
-    
     if (isWd) {
-      doc.text('Withdraw Amount:', 115, currentY + 8);
-      doc.text('Est. Conversion Value:', 115, currentY + 14);
-      doc.text('Agent Commission Earned:', 115, currentY + 20);
+      doc.setFillColor(248, 250, 252);
+      doc.rect(110, currentY, 80, 20, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(110, currentY, 80, 20, 'S');
 
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text('Withdraw Amount:', 115, currentY + 7);
+      
       doc.setFont('Helvetica', 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(15, 23, 42);
-      doc.text('Net Balance Deduction:', 115, currentY + 27);
+      doc.text('Est. Conversion Value:', 115, currentY + 14);
 
+      doc.setFont('Helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text(`$${tx.amount.toLocaleString()}`, 165, currentY + 8);
+      doc.setTextColor(51, 65, 85);
+      doc.text(`$${tx.amount.toLocaleString()}`, 165, currentY + 7);
+      
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.setTextColor(79, 70, 229); 
       doc.text(`BDT ${(tx.amount * tx.conversionRate).toFixed(2)}`, 165, currentY + 14);
-      doc.setTextColor(16, 185, 129); // green for commission
-      doc.text(`+$${(settings?.agentCommission ?? 1.5).toFixed(2)}`, 165, currentY + 20);
 
-      doc.setFontSize(10.5);
-      doc.setTextColor(225, 29, 72); // rose for withdrawal deduction
-      doc.text(`-$${(tx.amount - (settings?.agentCommission ?? 1.5)).toFixed(2)}`, 165, currentY + 27);
+      currentY += 26;
     } else {
+      doc.setFillColor(248, 250, 252);
+      doc.rect(110, currentY, 80, 32, 'F');
+      doc.setDrawColor(226, 232, 240);
+      doc.rect(110, currentY, 80, 32, 'S');
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8.5);
+
       doc.text('Subtotal Amount:', 115, currentY + 8);
       doc.text('Transaction Fee:', 115, currentY + 14);
       
@@ -7030,9 +8001,9 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       doc.setFontSize(10.5);
       doc.setTextColor(79, 70, 229); 
       doc.text(`$${tx.amount.toLocaleString()}`, 165, currentY + 24);
-    }
 
-    currentY += 38;
+      currentY += 38;
+    }
 
     // Draw partition line
     doc.setDrawColor(241, 245, 249);
@@ -7077,8 +8048,16 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     return doc;
   };
 
-  const downloadInvoicePDF = (tx: Transaction) => {
-    const doc = generateInvoicePDF(tx);
+  const downloadInvoicePDF = async (tx: Transaction) => {
+    let logoImg: HTMLImageElement | null = null;
+    if (settings?.logoUrl) {
+      try {
+        logoImg = await loadImage(settings.logoUrl);
+      } catch (err) {
+        console.error("Error loading settings logo for PDF download", err);
+      }
+    }
+    const doc = generateInvoicePDF(tx, logoImg);
     const isWd = tx.type === 'WITHDRAWAL';
     doc.save(`${isWd ? 'Withdrawal' : 'Deposit'}_Invoice_${tx.transitionId || tx.id}.pdf`);
   };
@@ -7612,19 +8591,42 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               @media print {
                 body {
                   padding: 0px;
+                  color: #000000 !important;
                 }
                 .no-print {
                   display: none !important;
                 }
+                /* Enforce solid backgrounds for table headers and summary card backgrounds on physical print sheets */
+                th, .bg-slate-50, .bg-slate-100 {
+                  background-color: #f1f5f9 !important;
+                  color: #0f172a !important;
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
               }
               
+              /* Highly polished corporate invoice table formatting */
               table {
+                width: 100%;
+                border-collapse: collapse;
                 page-break-inside: auto;
               }
               
               tr {
                 page-break-inside: avoid;
                 page-break-after: auto;
+                border-bottom: 1px solid #e2e8f0;
+              }
+              
+              th, td {
+                padding: 10px 12px !important;
+              }
+              
+              th {
+                font-weight: 700 !important;
+                text-transform: uppercase !important;
+                font-size: 9px !important;
+                letter-spacing: 0.05em !important;
               }
               
               thead {
@@ -9051,6 +10053,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   };
 
   const handleOpenPrintPreview = (type: 'DEPOSIT' | 'WITHDRAWAL') => {
+    setSelectedThermalTx(null);
     setFormError('');
     const numAmount = parseFloat(amount);
     if (isNaN(numAmount) || numAmount <= 0) {
@@ -9088,6 +10091,11 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 
     setPreviewTxType(type);
     setShowPrintPreviewModal(true);
+  };
+
+  const handleClosePrintPreview = () => {
+    setShowPrintPreviewModal(false);
+    setSelectedThermalTx(null);
   };
 
   const handlePrintThermalReceipt = () => {
@@ -9454,9 +10462,15 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       {/* Sidebar Navigation */}
       <aside className="w-72 bg-white border border-slate-200 rounded-[2rem] p-6 md:block hidden shrink-0 self-start shadow-sm sticky top-6">
         <div className="flex items-center gap-3 mb-8 px-2">
-          <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-md">
-            <ShieldCheck size={20} />
-          </div>
+          {settings?.logoUrl ? (
+            <div className="w-10 h-10 bg-white border border-slate-150 rounded-2xl flex items-center justify-center p-1.5 shadow-xs overflow-hidden shrink-0">
+              <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-md" referrerPolicy="no-referrer" />
+            </div>
+          ) : (
+            <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-md shrink-0">
+              <ShieldCheck size={20} />
+            </div>
+          )}
           <div>
             <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase leading-none font-sans">Agent Portal</h2>
             <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md mt-1 inline-block font-sans">FINANCIAL PARTNER</span>
@@ -9550,9 +10564,15 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               <div>
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm">
-                      <ShieldCheck size={16} />
-                    </div>
+                    {settings?.logoUrl ? (
+                      <div className="w-8 h-8 bg-white border border-slate-150 rounded-xl flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
+                        <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-sm" referrerPolicy="no-referrer" />
+                      </div>
+                    ) : (
+                      <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm shrink-0">
+                        <ShieldCheck size={16} />
+                      </div>
+                    )}
                     <span className="font-extrabold text-sm text-slate-850 uppercase tracking-tight font-sans">Agent Portal</span>
                   </div>
                   <button onClick={() => setAgentMobileSidebarOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
@@ -11400,7 +12420,7 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         accept=".jpg,.jpeg,.png,.webp,.pdf,image/*,application/pdf"
                         id="transaction-file-upload-dep"
                         className="hidden"
-                        onChange={(e) => {
+                        onChange={async (e) => {
                           const file = e.target.files?.[0];
                           if (file) {
                             if (file.size > 2 * 1024 * 1024) { 
@@ -11408,9 +12428,19 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                               return;
                             }
                             const isImg = file.type.startsWith('image/');
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              const base64Str = event.target?.result as string;
+                            try {
+                              let base64Str = '';
+                              if (isImg) {
+                                base64Str = await resizeAndCompressImage(file, 800, 800, 0.7);
+                              } else {
+                                base64Str = await new Promise<string>((resolve) => {
+                                  const r = new FileReader();
+                                  r.onload = (event) => resolve(event.target?.result as string);
+                                  r.onerror = () => resolve('');
+                                  r.readAsDataURL(file);
+                                });
+                              }
+
                               setTransitionFile({
                                 name: file.name,
                                 type: file.type,
@@ -11459,8 +12489,10 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                                   }
                                 }, 150);
                               }
-                            };
-                            reader.readAsDataURL(file);
+                            } catch (err) {
+                              console.error("Error loading document:", err);
+                              setFormError('Failed to load document.');
+                            }
                           }
                         }}
                       />
@@ -12528,13 +13560,13 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                <div className="bg-slate-900 text-white px-8 py-6 relative no-print">
                  <div className="flex items-center justify-between">
                    <div>
-                     <span className="bg-indigo-600 text-[10px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full text-white inline-block mb-2">Deposit Receipt</span>
-                     <h4 className="font-extrabold text-lg text-white">DEPOSIT REQUEST INVOICE</h4>
+                     <span className="bg-indigo-600 text-[10px] font-bold tracking-widest uppercase px-2.5 py-1 rounded-full text-white inline-block mb-2">{latestInvoice.type === 'WITHDRAWAL' ? 'Withdrawal Receipt' : 'Deposit Receipt'}</span>
+                     <h4 className="font-extrabold text-lg text-white">{latestInvoice.type === 'WITHDRAWAL' ? 'WITHDRAWAL REQUEST INVOICE' : 'DEPOSIT REQUEST INVOICE'}</h4>
                      <p className="text-xs text-slate-400 font-mono mt-0.5">Ref: {latestInvoice.transitionId}</p>
                    </div>
-                   <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center border border-white/20">
+                   {settings?.logoUrl ? ( <div className="w-16 h-12 bg-white rounded-xl flex items-center justify-center p-1.5 shadow-sm"><img src={settings.logoUrl} alt="Company Logo" className="max-h-full max-w-full object-contain" referrerPolicy="no-referrer" /></div> ) : ( <div className="w-12 h-12 bg-white/10 rounded-full flex items-center justify-center border border-white/20">
                      <FileText size={22} className="text-indigo-400" />
-                   </div>
+                   </div>)}
                  </div>
                </div>
 
@@ -12579,13 +13611,54 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                    </div>
                  </div>
 
-                 <div className="border-t border-slate-100 pt-6">
+                 {/* Sender & Receiver Info Box (Only for Withdrawals) */}
+                  {latestInvoice.type === 'WITHDRAWAL' && (
+                    <div className="border border-slate-200 rounded-2xl bg-slate-50 overflow-hidden text-xs mb-6">
+                      <div className="px-4 py-2.5 bg-slate-100 border-b border-slate-200 font-bold text-slate-700 text-[10px] uppercase tracking-wider flex items-center justify-between">
+                        <span>Withdrawal Participants</span>
+                        <span className="text-indigo-600 font-extrabold text-[9px]">SENDER ➔ RECEIVER</span>
+                      </div>
+                      <div className="grid grid-cols-2 divide-x divide-slate-200 p-4 gap-4">
+                        {/* Sender details */}
+                        <div className="space-y-1 text-left">
+                          <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">Customer (Sender)</p>
+                          <p className="font-bold text-slate-800">{latestInvoice.senderName || 'N/A'}</p>
+                          <p className="text-slate-500 font-mono text-[10px]">Phone/ID: {latestInvoice.senderId || 'N/A'}</p>
+                          <p className="text-[9px] text-slate-400 font-medium">Role: Originator</p>
+                        </div>
+                        {/* Receiver details */}
+                        <div className="pl-4 space-y-1 text-left">
+                          <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-widest">Receiver (Recipient)</p>
+                          <p className="font-bold text-slate-800">{latestInvoice.receiverName || 'N/A'}</p>
+                          <p className="text-slate-500 font-mono text-[10px]">Phone: {latestInvoice.receiverPhone || 'N/A'}</p>
+                          <div className="text-[9.5px] text-slate-500 font-medium leading-tight">
+                            {latestInvoice.method === 'Bank' ? (
+                              <div className="mt-1 space-y-0.5 bg-white p-1.5 rounded-lg border border-slate-100 text-[9px]">
+                                <p className="truncate"><span className="font-bold">Bank:</span> {latestInvoice.receiverBankName || 'N/A'}</p>
+                                <p className="truncate"><span className="font-bold">A/C:</span> {latestInvoice.receiverBankAccountNumber || 'N/A'}</p>
+                                <p className="truncate"><span className="font-bold">Branch:</span> {latestInvoice.receiverBankBranch || 'N/A'}</p>
+                              </div>
+                            ) : (
+                              <div className="mt-1">
+                                <span className="font-semibold">Method:</span> {latestInvoice.receiverMethod || latestInvoice.method}
+                                {latestInvoice.receiverAccountName && ` (${latestInvoice.receiverAccountName})`}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="border-t border-slate-100 pt-6">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3">Itemized Details</p>
                     <div className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
                       <div className="flex justify-between items-center p-4 border-b border-indigo-50/50 bg-white">
                         <div>
-                          <p className="font-bold text-slate-800 text-xs text-indigo-700">Agent Wallet Deposit</p>
-                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Ref ID: {latestInvoice.transitionId}</p>
+                          <p className="font-bold text-slate-800 text-xs text-indigo-700">
+                            {latestInvoice.type === 'WITHDRAWAL' ? 'Customer Wallet Withdrawal' : 'Agent Wallet Deposit'}
+                          </p>
+                          <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Ref ID: {latestInvoice.transitionId || latestInvoice.id}</p>
                         </div>
                         <p className="font-black text-slate-800">${latestInvoice.amount.toLocaleString()}</p>
                       </div>
@@ -12594,14 +13667,31 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                           <span>Subtotal</span>
                           <span>${latestInvoice.amount.toLocaleString()}</span>
                         </div>
-                        <div className="flex justify-between text-slate-500">
-                          <span>Processing Fee</span>
-                          <span>$0.00</span>
-                        </div>
-                        <div className="flex justify-between text-slate-800 font-black text-sm pt-2 border-t border-slate-200/65">
-                          <span>Total Deposited</span>
-                          <span className="text-indigo-600">${latestInvoice.amount.toLocaleString()}</span>
-                        </div>
+                        {latestInvoice.type === 'WITHDRAWAL' ? (
+                          <>
+                            <div className="flex justify-between text-slate-500">
+                              <span>Conversion Rate</span>
+                              <span>1 USD = {latestInvoice.conversionRate || settings?.usdToBdt || 120} BDT</span>
+                            </div>
+                            <div className="flex justify-between text-slate-800 font-black text-sm pt-2 border-t border-slate-200/65">
+                              <span>Est. Conversion Value</span>
+                              <span className="text-indigo-600">
+                                BDT {((latestInvoice.amount * (latestInvoice.conversionRate || settings?.usdToBdt || 120))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex justify-between text-slate-500">
+                              <span>Processing Fee</span>
+                              <span>$0.00</span>
+                            </div>
+                            <div className="flex justify-between text-slate-800 font-black text-sm pt-2 border-t border-slate-200/65">
+                              <span>Total Deposited</span>
+                              <span className="text-indigo-600">${latestInvoice.amount.toLocaleString()}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -12620,32 +13710,26 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                   </div>
                 </div>
 
-
-
-
-
-
-
                 {/* Footer of Modal */}
-               <div className="bg-slate-50 border-t border-slate-100 px-8 py-5 flex items-center justify-between shrink-0 no-print">
+               <div className="bg-slate-50 border-t border-slate-100 px-5 sm:px-8 py-4 sm:py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shrink-0 no-print">
                  <button 
                    onClick={() => setLatestInvoice(null)}
-                   className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs transition-colors font-semibold cursor-pointer"
+                   className="w-full sm:w-auto text-center px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs transition-colors font-semibold cursor-pointer"
                  >
                    Close Receipt
                  </button>
-                 <div className="flex gap-3">
+                 <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                    <button 
                      type="button"
                      onClick={() => window.print()}
-                     className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-900 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
+                     className="w-full sm:w-auto justify-center px-4 py-2.5 bg-zinc-800 hover:bg-zinc-900 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
                    >
                      <Printer size={13} /> Print Receipt
                    </button>
                    <button 
                      type="button"
                      onClick={() => downloadInvoicePDF(latestInvoice)}
-                     className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
+                     className="w-full sm:w-auto justify-center px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
                    >
                      <Download size={14} /> Download PDF Invoice
                    </button>
@@ -12654,324 +13738,6 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
              </motion.div>
            </div>
          )}
-
-          {showPrintPreviewModal && (
-            <div className="fixed inset-0 z-55 flex items-center justify-center p-4 md:p-6 select-none font-sans">
-              {/* Backdrop */}
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setShowPrintPreviewModal(false)}
-                className="absolute inset-0 bg-slate-900/65 backdrop-blur-sm shadow-2xl"
-              />
-
-              {/* Modal Container */}
-              <motion.div 
-                initial={{ opacity: 0, y: 35, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                className="relative bg-white rounded-3xl shadow-2xl border border-slate-150 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden z-10"
-              >
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2.5 bg-indigo-50 text-indigo-650 rounded-2xl">
-                      <Printer size={20} />
-                    </div>
-                    <div>
-                      <h3 className="text-base font-black text-slate-900 uppercase tracking-tight">Thermal Receipt Print Preview</h3>
-                      <p className="text-[11px] text-slate-500 font-semibold">Format and style your receipt before printing to standard roll printers</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setShowPrintPreviewModal(false)}
-                    className="p-2 hover:bg-slate-150 text-slate-400 hover:text-slate-700 rounded-full transition-colors cursor-pointer"
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-
-                {/* Split Content Area */}
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-8 bg-slate-50/20">
-                  
-                  {/* Left Column: Customizing & Styling Options */}
-                  <div className="space-y-5 text-left pr-0 md:pr-4">
-                    <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-150 pb-2">
-                      Receipt Roll Settings
-                    </h4>
-
-                    {/* Width Toggle */}
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
-                        Paper Width Size
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(['58mm', '80mm'] as const).map(w => (
-                          <button
-                            key={w}
-                            type="button"
-                            onClick={() => setReceiptWidth(w)}
-                            className={cn(
-                              "py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer",
-                              receiptWidth === w 
-                                ? "bg-indigo-600 text-white border-transparent shadow-sm"
-                                : "bg-white text-slate-650 border-slate-200 hover:bg-slate-50"
-                            )}
-                          >
-                            {w === '58mm' ? '58mm (2-inch Roll)' : '80mm (3-inch Roll)'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Font Family Selection */}
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
-                        Font Family Face
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(['mono', 'sans'] as const).map(f => (
-                          <button
-                            key={f}
-                            type="button"
-                            onClick={() => setReceiptFont(f)}
-                            className={cn(
-                              "py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer",
-                              receiptFont === f 
-                                ? "bg-indigo-600 text-white border-transparent shadow-sm"
-                                : "bg-white text-slate-650 border-slate-200 hover:bg-slate-50"
-                            )}
-                          >
-                            {f === 'mono' ? 'Courier Monospace' : 'System Sans-Serif'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Font Size Selector */}
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
-                        Font Type Size
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {(['normal', 'large'] as const).map(s => (
-                          <button
-                            key={s}
-                            type="button"
-                            onClick={() => setReceiptFontSize(s)}
-                            className={cn(
-                              "py-2.5 px-4 rounded-xl border font-bold text-xs transition-all cursor-pointer",
-                              receiptFontSize === s 
-                                ? "bg-indigo-600 text-white border-transparent shadow-sm"
-                                : "bg-white text-slate-650 border-slate-200 hover:bg-slate-50"
-                            )}
-                          >
-                            {s === 'normal' ? 'Standard (Compact)' : 'Large Bold'}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Header Input */}
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
-                        Receipt Title Header
-                      </label>
-                      <input 
-                        type="text"
-                        value={receiptTitle}
-                        onChange={e => setReceiptTitle(e.target.value)}
-                        placeholder="OFFICIAL RECEIPT"
-                        className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-xs text-slate-800 font-bold focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all"
-                      />
-                    </div>
-
-                    {/* Timestamp Checkbox */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <input 
-                        type="checkbox"
-                        id="receipt-include-time"
-                        checked={receiptIncludeTime}
-                        onChange={e => setReceiptIncludeTime(e.target.checked)}
-                        className="w-4 h-4 text-indigo-600 bg-white border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-                      />
-                      <label htmlFor="receipt-include-time" className="text-xs font-bold text-slate-700 cursor-pointer select-none font-sans">
-                        Include current date & timestamp
-                      </label>
-                    </div>
-
-                    {/* Footer Input */}
-                    <div>
-                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 block">
-                        Custom Footer Note
-                      </label>
-                      <textarea 
-                        rows={2}
-                        value={receiptCustomFooter}
-                        onChange={e => setReceiptCustomFooter(e.target.value)}
-                        placeholder="e.g. Please verify wallet balance"
-                        className="w-full p-3 bg-white border border-slate-200 rounded-xl outline-none text-xs text-slate-800 font-medium focus:ring-2 focus:ring-indigo-600 focus:border-transparent transition-all resize-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Right Column: Live Thermal Print Simulator */}
-                  <div className="flex flex-col items-center justify-center bg-slate-100/80 p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-inner overflow-y-auto max-h-[500px]">
-                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-3 select-none">
-                      Printer Simulator Canvas
-                    </span>
-
-                    {/* Standard Thermal roll wrapper */}
-                    <div 
-                      id="thermal-receipt-content" 
-                      className={cn(
-                        "p-6 bg-white text-black border border-zinc-300 shadow-lg transition-all",
-                        receiptFont === 'mono' ? 'font-mono' : 'font-sans',
-                        receiptWidth === '58mm' ? 'w-[260px]' : 'w-[350px]'
-                      )}
-                    >
-                      <div className="text-center">
-                        {settings?.logoUrl && (
-                          <div className="flex justify-center mb-2">
-                            <img src={settings.logoUrl} alt="Logo" className="h-8 max-w-[120px] object-contain rounded-sm" referrerPolicy="no-referrer" />
-                          </div>
-                        )}
-                        <div className={cn("font-black uppercase tracking-wider mb-1 leading-tight", receiptFontSize === 'large' ? 'text-sm' : 'text-xs')}>
-                          {receiptTitle}
-                        </div>
-                        <div className="text-[9px] font-bold tracking-tight">
-                          OFFICIAL AGENT TERMINAL
-                        </div>
-                        <div className="text-[8px] mt-1 font-medium">
-                          Agent Name: {profile.name || 'Agent Point'}
-                        </div>
-                        <div className="text-[8px] font-medium">
-                          Agent ID: {profile.uid || 'N/A'}
-                        </div>
-                        <div className="text-[8px] font-medium">
-                          Mobile: {profile.phone || 'N/A'}
-                        </div>
-                      </div>
-
-                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
-
-                      <div className="space-y-0.5 text-[8px] leading-tight">
-                        <div className="flex justify-between">
-                          <span>TRANSACTION:</span>
-                          <span className="font-bold uppercase">{previewTxType} REQUEST</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>STATUS:</span>
-                          <span className="font-bold">PENDING FINALIZATION</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>TIMESTAMP:</span>
-                          <span>{receiptIncludeTime ? new Date().toLocaleString() : new Date().toLocaleDateString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>REFERENCE:</span>
-                          <span className="font-bold font-mono">{previewTxType === 'DEPOSIT' ? (txId || 'DEP-PENDING') : (txId || 'WD-PENDING')}</span>
-                        </div>
-                      </div>
-
-                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
-
-                      {previewTxType === 'DEPOSIT' ? (
-                        <div className="space-y-1 text-[8px] leading-tight">
-                          <div className="flex justify-between font-bold">
-                            <span>DEPOSIT AMOUNT:</span>
-                            <span>${parseFloat(amount).toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Payment Method:</span>
-                            <span className="uppercase font-bold">{method || 'Bank'}</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-1 text-[8px] leading-tight">
-                          <div>
-                            <span className="font-bold">CUSTOMER (SENDER)</span>
-                            <div className="pl-1.5 font-mono text-[7px]">{senderName} ({senderId})</div>
-                          </div>
-                          <div className="mt-1">
-                            <span className="font-bold">RECEIVER (RECIPIENT)</span>
-                            <div className="pl-1.5 font-mono text-[7px]">{receiverName} ({receiverPhone})</div>
-                            <div className="pl-1.5 font-mono text-[7px]">Method: {method}</div>
-                            {method === 'Bank' ? (
-                              <div className="pl-1.5 text-[7px] italic">
-                                Bank: {receiverBankName} - A/C: {receiverBankAccountNumber}
-                              </div>
-                            ) : (
-                              receiverAccountName && (
-                                <div className="pl-1.5 text-[7px] italic">
-                                  Holder Name: {receiverAccountName}
-                                </div>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
-
-                      <div className="space-y-0.5 text-[8px] leading-tight">
-                        <div className="flex justify-between font-black text-[10px]">
-                          <span>TOTAL VALUE:</span>
-                          <span>${parseFloat(amount).toFixed(2)}</span>
-                        </div>
-                        {previewTxType === 'WITHDRAWAL' ? (
-                          <>
-                            <div className="flex justify-between">
-                              <span>CONV. RATE:</span>
-                              <span>1 USD = {settings.usdToBdt} BDT</span>
-                            </div>
-                            <div className="flex justify-between font-bold text-[9px] mt-0.5">
-                              <span>PAYOUT (BDT):</span>
-                              <span>৳{(parseFloat(amount) * settings.usdToBdt).toFixed(2)}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <div className="flex justify-between">
-                            <span>SERVICE FEE:</span>
-                            <span>$0.00 (FREE)</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
-
-                      <div className="text-center text-[7px] space-y-1.5 leading-tight">
-                        {receiptCustomFooter && <p className="italic">{receiptCustomFooter}</p>}
-                        <div className="barcode border border-black py-1.5 px-1 max-w-[120px] mx-auto text-[6px] tracking-[2px] font-mono select-none">
-                          ||||||| | |||| | ||||||
-                          <div className="text-[5px] tracking-normal font-sans mt-0.5 uppercase font-bold">*{previewTxType === 'DEPOSIT' ? (txId || 'DEP') : (txId || 'WD')}*</div>
-                        </div>
-                        <p className="text-[6px] text-zinc-500 font-sans mt-0.5">Wallet Pro terminal. Secure receipt slip.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer Controls */}
-                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                  <button 
-                    onClick={() => setShowPrintPreviewModal(false)}
-                    className="px-4 py-2 text-slate-500 hover:text-slate-800 font-bold text-xs transition-colors font-semibold cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="button"
-                    onClick={handlePrintThermalReceipt}
-                    className="px-6 py-2.5 bg-zinc-900 hover:bg-black text-white rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm active:translate-y-px cursor-pointer"
-                  >
-                    <Printer size={14} /> 
-                    <span>Print Thermal Receipt</span>
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
 
           {showAddReceiverModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -13616,7 +14382,8 @@ function AgentDashboard({ profile, isOffline = false }: { profile: UserProfile, 
 }
 
 
-function CustomerDashboard({ profile, isOffline = false }: { profile: UserProfile, isOffline?: boolean, key?: string }) {
+function CustomerDashboard({ profile, isOffline = false, onTriggerPrint }: { profile: UserProfile, isOffline?: boolean, onTriggerPrint?: (tx: Transaction) => void, key?: string }) {
+  const { settings } = useSettings();
   const [custTx, setCustTx] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [assignedAgentName, setAssignedAgentName] = useState('Central Office');
@@ -14176,6 +14943,7 @@ function CustomerDashboard({ profile, isOffline = false }: { profile: UserProfil
                   <th className="py-4 px-4">Transfer Details</th>
                   <th className="py-4 px-1">Status</th>
                   <th className="py-4 px-4 text-right">Cash Amount</th>
+                  <th className="py-4 px-4 text-right">Receipt</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 leading-normal">
@@ -14242,12 +15010,23 @@ function CustomerDashboard({ profile, isOffline = false }: { profile: UserProfil
                           {isDeposit ? '+' : '-'}${tx.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </p>
                       </td>
+                      <td className="py-4 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onTriggerPrint?.(tx)}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 border border-slate-200 rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 cursor-pointer active:translate-y-px"
+                          title="Print Thermal Receipt"
+                        >
+                          <Printer size={10} />
+                          <span>Print</span>
+                        </button>
+                      </td>
                     </motion.tr>
                   );
                 })}
                 {filteredTxs.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-16 text-center text-slate-400">
+                    <td colSpan={5} className="py-16 text-center text-slate-400">
                       <History size={36} className="mx-auto text-slate-300 mb-2" />
                       <p className="text-xs font-bold">No transition records found.</p>
                       <p className="text-[10px] text-slate-400/80 mt-1">Try adapting search strings or filter criteria.</p>
