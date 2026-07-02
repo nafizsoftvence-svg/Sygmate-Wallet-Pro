@@ -28,6 +28,7 @@ import {
   GitMerge,
   Briefcase,
   Upload,
+  Image,
   Globe,
   Eye,
   EyeOff,
@@ -58,7 +59,10 @@ import {
   CheckCircle2,
   Cpu,
   Percent,
-  Crop
+  Crop,
+  Type,
+  Palette,
+  ChevronDown
 } from 'lucide-react';
 import WalletPluginWidget from './components/WalletPluginWidget';
 import { ProfitCalculator } from './components/ProfitCalculator';
@@ -215,6 +219,10 @@ interface SystemSettings {
   monthlyAutoReportFormat?: string;
   logoUrl?: string;
   logoNavHeight?: number; // Logo display height specifically for top navigation menu
+  logoLoginHeight?: number; // Logo display height for login/landing page
+  siteFont?: string;
+  primaryColor?: string;
+  siteFontSize?: string; // Global base font size modifier (e.g. "small", "normal", "medium", "large")
 }
 
 // --- Settings Context & State Management ---
@@ -610,6 +618,125 @@ function AppContent() {
   const { settings, setSettings } = useSettings();
 
   useEffect(() => {
+    let styleEl = document.getElementById('dynamic-brand-styles') as HTMLStyleElement;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'dynamic-brand-styles';
+      document.head.appendChild(styleEl);
+    }
+
+    const selectedFont = settings?.siteFont || 'Inter';
+    const primaryColor = settings?.primaryColor || 'indigo';
+
+    // Color maps containing shades for each preset
+    const colorPresets: Record<string, Record<string, string>> = {
+      indigo: {
+        '50': '#e0e7ff',
+        '100': '#c7d2fe',
+        '500': '#6366f1',
+        '600': '#4f46e5',
+        '650': '#4338ca',
+        '700': '#3730a3',
+        '800': '#1e1b4b',
+        '850': '#110e2e',
+      },
+      emerald: {
+        '50': '#ecfdf5',
+        '100': '#d1fae5',
+        '500': '#10b981',
+        '600': '#059669',
+        '650': '#047857',
+        '700': '#065f46',
+        '800': '#064e3b',
+        '850': '#022c22',
+      },
+      blue: {
+        '50': '#f0f9ff',
+        '100': '#e0f2fe',
+        '500': '#0ea5e9',
+        '600': '#0284c7',
+        '650': '#0369a1',
+        '700': '#075985',
+        '800': '#0c4a6e',
+        '850': '#082f49',
+      },
+      rose: {
+        '50': '#fff1f2',
+        '100': '#ffe4e6',
+        '500': '#f43f5e',
+        '600': '#e11d48',
+        '650': '#be123c',
+        '700': '#9f1239',
+        '800': '#881337',
+        '850': '#4c0519',
+      },
+      purple: {
+        '50': '#faf5ff',
+        '100': '#f3e8ff',
+        '500': '#a855f7',
+        '600': '#9333ea',
+        '650': '#7e22ce',
+        '700': '#6b21a8',
+        '800': '#581c87',
+        '850': '#3b0764',
+      },
+      teal: {
+        '50': '#f0fdfa',
+        '100': '#ccfbf1',
+        '500': '#14b8a6',
+        '600': '#0d9488',
+        '650': '#0f766e',
+        '700': '#115e59',
+        '800': '#134e4a',
+        '850': '#042f2e',
+      },
+      slate: {
+        '50': '#f8fafc',
+        '100': '#f1f5f9',
+        '500': '#64748b',
+        '600': '#475569',
+        '650': '#334155',
+        '700': '#1e293b',
+        '800': '#0f172a',
+        '850': '#020617',
+      }
+    };
+
+    const shades = colorPresets[primaryColor] || colorPresets.indigo;
+
+    const fontSizeMap: Record<string, string> = {
+      small: '92.5%',
+      normal: '100%',
+      medium: '105%',
+      large: '110%',
+      xlarge: '115%',
+    };
+    const selectedFontSize = fontSizeMap[settings?.siteFontSize || 'normal'] || '100%';
+
+    let css = `
+      :root {
+        --font-sans: "${selectedFont}", "Inter", ui-sans-serif, system-ui, sans-serif !important;
+        --color-indigo-50: ${shades['50']} !important;
+        --color-indigo-100: ${shades['100']} !important;
+        --color-indigo-500: ${shades['500']} !important;
+        --color-indigo-600: ${shades['600']} !important;
+        --color-indigo-650: ${shades['650']} !important;
+        --color-indigo-700: ${shades['700']} !important;
+        --color-indigo-800: ${shades['800']} !important;
+        --color-indigo-850: ${shades['850']} !important;
+      }
+      html {
+        font-size: ${selectedFontSize} !important;
+      }
+      body {
+        font-family: "${selectedFont}", "Inter", ui-sans-serif, system-ui, sans-serif !important;
+      }
+    `;
+
+    styleEl.innerHTML = css;
+  }, [settings]);
+
+  useEffect(() => {
     if (isOffline) {
       const loadLocalSettings = () => {
         try {
@@ -639,6 +766,7 @@ function AppContent() {
   // Hoisted Print Preview Modal States
   const [showPrintPreviewModal, setShowPrintPreviewModal] = useState(false);
   const [selectedThermalTx, setSelectedThermalTx] = useState<Transaction | null>(null);
+  const [selectedThermalTxs, setSelectedThermalTxs] = useState<Transaction[]>([]);
   const [previewTxType, setPreviewTxType] = useState<'DEPOSIT' | 'WITHDRAWAL'>('DEPOSIT');
   const [receiptWidth, setReceiptWidth] = useState<'58mm' | '80mm'>('58mm');
   const [receiptFont, setReceiptFont] = useState<'mono' | 'sans'>('mono');
@@ -712,10 +840,29 @@ function AppContent() {
                 width: 80%;
                 letter-spacing: 2px;
               }
+              .receipt-block {
+                width: ${receiptWidth === '58mm' ? '54mm' : '76mm'};
+                padding: 10px;
+                background: #fff;
+                color: #000;
+                margin-bottom: 15px;
+                box-sizing: border-box;
+              }
+              @media print {
+                .receipt-block {
+                  page-break-after: always;
+                  margin-bottom: 0;
+                  border: none !important;
+                  box-shadow: none !important;
+                }
+                .receipt-block:last-child {
+                  page-break-after: avoid;
+                }
+              }
             </style>
           </head>
           <body onload="window.print(); setTimeout(function(){ window.frameElement.remove(); }, 1000)">
-            \${receiptEl.innerHTML}
+            ${receiptEl.innerHTML}
           </body>
         </html>
       `);
@@ -726,6 +873,7 @@ function AppContent() {
   const handleClosePrintPreview = () => {
     setShowPrintPreviewModal(false);
     setSelectedThermalTx(null);
+    setSelectedThermalTxs([]);
   };
   
   // Feedback states
@@ -874,10 +1022,53 @@ function AppContent() {
             } else {
               setProfile(data);
             }
+            setLoading(false);
           } else {
-            setProfile(null);
+            // Auto-create profile for default admin/agent emails to bypass RegisterScreen bug
+            const email = u.email?.toLowerCase().trim();
+            if (email === 'admin@walletpro.com' || email === 'nafizsoftvence@gmail.com') {
+              const adminProfile: UserProfile = {
+                uid: u.uid,
+                name: 'System Admin',
+                phone: '+8801700000000',
+                role: 'ADMIN',
+                balance: 154000,
+                status: 'ACTIVE',
+                email: u.email || undefined
+              };
+              setDoc(doc(db, 'users', u.uid), adminProfile).then(() => {
+                setProfile(adminProfile);
+                setLoading(false);
+              }).catch(err => {
+                console.error("Error auto-creating admin profile:", err);
+                setProfile(null);
+                setLoading(false);
+              });
+            } else if (email === 'agent@walletpro.com') {
+              const agentProfile: UserProfile = {
+                uid: u.uid,
+                name: 'Demo Agent',
+                phone: '+8801711111111',
+                role: 'AGENT',
+                balance: 45000,
+                status: 'ACTIVE', // Set to ACTIVE directly so the agent doesn't see PENDING approval screen
+                email: u.email || undefined,
+                documentNo: '1234567890',
+                businessAddress: 'Dhaka, Bangladesh'
+              };
+              setDoc(doc(db, 'users', u.uid), agentProfile).then(() => {
+                setProfile(agentProfile);
+                setLoading(false);
+              }).catch(err => {
+                console.error("Error auto-creating agent profile:", err);
+                setProfile(null);
+                setLoading(false);
+              });
+            } else {
+              setProfile(null);
+              setLoading(false);
+            }
           }
-          setLoading(false);
         }, (err) => {
           // If the client has logged out or is in transitional logout, suppress permission error
           if (auth.currentUser) {
@@ -1090,7 +1281,8 @@ function AppContent() {
 
   const handleLogin = async () => {
     try {
-      const res = await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      const res = await signInWithPopup(auth, provider);
       if (res.user) {
         writeSystemLog(false, 'AUTH_LOGIN', `User authenticated via Google Sign-In`, {
           name: res.user.displayName || undefined,
@@ -1099,8 +1291,27 @@ function AppContent() {
           role: 'SYSTEM'
         });
       }
-    } catch (err) {
-      console.error('Login failed', err);
+    } catch (err: any) {
+      const isExpectedError = 
+        err.code === 'auth/popup-blocked' ||
+        err.code === 'auth/cancelled-popup-request' ||
+        err.code === 'auth/internal-error' ||
+        err.code === 'auth/popup-closed-by-user';
+
+      if (isExpectedError) {
+        console.warn('Login popup blocked, cancelled or closed. Attempting fallback redirect...', err);
+      } else {
+        console.error('Login failed', err);
+      }
+
+      if (isExpectedError) {
+        try {
+          const provider = new GoogleAuthProvider();
+          await signInWithRedirect(auth, provider);
+        } catch (redirErr) {
+          console.warn('Fallback redirect warnings (ignoring):', redirErr);
+        }
+      }
     }
   };
 
@@ -1238,92 +1449,73 @@ function AppContent() {
       <nav className="sticky top-0 z-50 bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
           {settings?.logoUrl ? (
-            <div className="flex items-center justify-center">
-              <img 
-                src={settings.logoUrl} 
-                alt="Logo" 
-                style={{ height: `${settings.logoNavHeight || 32}px` }}
-                className="w-auto max-w-[150px] object-contain rounded-sm" 
-                referrerPolicy="no-referrer" 
-              />
-            </div>
+            <img 
+              src={settings.logoUrl} 
+              alt="Logo" 
+              className="max-w-[200px] object-contain rounded-lg shadow-xs border border-slate-100" 
+              style={{ height: `${settings.logoNavHeight ?? 36}px` }}
+              referrerPolicy="no-referrer" 
+            />
           ) : (
-            <div className="w-9 h-9 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
-              <Wallet size={20} />
-            </div>
+            <>
+              <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-xs">
+                <Wallet size={18} />
+              </div>
+              <span className="font-extrabold text-base tracking-tight text-slate-800 font-sans">WalletPro</span>
+            </>
           )}
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold text-base leading-tight tracking-tight">WalletPro</h1>
-              {isOffline ? (
-                <div className="flex items-center gap-1.5 bg-amber-50 text-amber-800 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-amber-200 shadow-sm select-none whitespace-nowrap">
-                  <span className="relative flex h-1.5 w-1.5 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-500"></span>
-                  </span>
-                  <span>
-                    <span className="hidden sm:inline">Sandbox Mode (Local Synced)</span>
-                    <span className="inline sm:hidden">Sandbox</span>
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider border border-emerald-150 shadow-sm select-none whitespace-nowrap">
-                  <span className="relative flex h-1.5 w-1.5 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                  </span>
-                  <span>
-                    <span className="hidden sm:inline">Cloud Live (Firestore Synced)</span>
-                    <span className="inline sm:hidden">Live</span>
-                  </span>
-                </div>
-              )}
-            </div>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1.5 leading-none">{profile.role}</p>
-          </div>
         </div>
+          
+
         
         <div className="flex items-center gap-4">
           {isOffline && (
             <button 
               onClick={() => toggleOfflineMode(false)}
-              className="text-xs font-semibold px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all"
+              className="text-xs font-bold px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
             >
-              Enable Firebase Cloud Mode
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+              </span>
+              <span>Go Cloud Live</span>
             </button>
           )}
+          
           <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
             <button 
               onClick={handleOpenProfileModal}
-              className="flex items-center gap-2.5 text-left hover:opacity-85 transition-all focus:outline-none"
+              className="flex items-center gap-2 text-left hover:opacity-85 transition-all focus:outline-none cursor-pointer"
               title="Edit Profile Settings"
             >
               {profile.photoURL ? (
                 <img 
                   src={profile.photoURL} 
                   referrerPolicy="no-referrer"
-                  alt={profile.name} 
-                  className="w-9 h-9 rounded-full object-cover border-2 border-indigo-150 shadow-sm"
+                  alt={profile.name || "Profile"} 
+                  className="w-9 h-9 rounded-full object-cover border-2 border-indigo-150 shadow-xs"
                 />
               ) : (
-                <div className="w-9 h-9 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center font-bold text-xs border border-indigo-100 uppercase shadow-sm">
-                  {profile.name ? profile.name.slice(0, 2) : 'U'}
+                <div className="w-9 h-9 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center font-bold text-xs border border-indigo-100 uppercase shadow-xs">
+                  {profile.name ? profile.name.slice(0, 2) : 'WP'}
                 </div>
               )}
               <div className="text-right hidden sm:block leading-tight">
-                <p className="text-sm font-bold flex items-center gap-1 text-slate-800">
-                  {profile.name}
-                  <Settings size={12} className="text-slate-400 shrink-0" />
+                <p className="text-xs font-bold flex items-center gap-1 text-slate-800">
+                  {profile.name || 'User'}
+                  <Settings size={11} className="text-slate-400 shrink-0" />
                 </p>
-                <p className="text-[10px] text-slate-500 font-bold font-mono">{profile.phone}</p>
+                <p className="text-[9px] text-slate-500 font-bold font-mono">{profile.phone || 'No phone'}</p>
               </div>
             </button>
+            
             <button 
               onClick={handleLogout}
-              className="p-2 text-slate-400 hover:text-red-500 transition-colors"
+              className="py-1.5 px-2.5 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-xl transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer border border-transparent hover:border-rose-100"
               title="Log Out"
             >
-              <LogOut size={18} />
+              <LogOut size={14} />
+              <span className="hidden sm:inline">Log Out</span>
             </button>
           </div>
         </div>
@@ -1336,8 +1528,48 @@ function AppContent() {
             initial={{ opacity: 0 !== undefined ? 1 : 0 }}
             className="w-full"
           >
-            {profile.role === 'ADMIN' && <AdminDashboard key="admin" profile={profile} isOffline={isOffline} />}
-            {profile.role === 'AGENT' && <AgentDashboard key="agent" profile={profile} isOffline={isOffline} />}
+            {profile.role === 'ADMIN' && (
+              <AdminDashboard 
+                key="admin" 
+                profile={profile} 
+                isOffline={isOffline} 
+                onOpenProfile={handleOpenProfileModal} 
+                onTriggerPrint={(tx) => {
+                  setSelectedThermalTx(tx);
+                  setPreviewTxType(tx.type);
+                  setShowPrintPreviewModal(true);
+                }}
+                onTriggerBulkPrint={(txs) => {
+                  setSelectedThermalTxs(txs);
+                  if (txs.length > 0) {
+                    setSelectedThermalTx(txs[0]);
+                    setPreviewTxType(txs[0].type);
+                  }
+                  setShowPrintPreviewModal(true);
+                }}
+              />
+            )}
+            {profile.role === 'AGENT' && (
+              <AgentDashboard 
+                key="agent" 
+                profile={profile} 
+                isOffline={isOffline} 
+                onOpenProfile={handleOpenProfileModal} 
+                onTriggerPrint={(tx) => {
+                  setSelectedThermalTx(tx);
+                  setPreviewTxType(tx.type);
+                  setShowPrintPreviewModal(true);
+                }}
+                onTriggerBulkPrint={(txs) => {
+                  setSelectedThermalTxs(txs);
+                  if (txs.length > 0) {
+                    setSelectedThermalTx(txs[0]);
+                    setPreviewTxType(txs[0].type);
+                  }
+                  setShowPrintPreviewModal(true);
+                }}
+              />
+            )}
             {profile.role === 'CUSTOMER' && (
               <CustomerDashboard 
                 key="customer" 
@@ -1949,173 +2181,181 @@ function AppContent() {
                 </div>
 
                 {/* Right Column: Live Thermal Print Simulator */}
-                <div className="flex flex-col items-center justify-center bg-slate-100/80 p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-inner overflow-y-auto max-h-[500px]">
+                <div className="flex flex-col items-center justify-start bg-slate-100/80 p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-inner overflow-y-auto max-h-[500px] w-full">
                   <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-3 select-none">
-                    Printer Simulator Canvas
+                    Printer Simulator Canvas {selectedThermalTxs.length > 0 && `(${selectedThermalTxs.length} Receipts)`}
                   </span>
 
                   {/* Standard Thermal roll wrapper */}
-                  {(() => {
-                    const printTxType = selectedThermalTx.type;
-                    const printTxId = selectedThermalTx.transitionId || selectedThermalTx.id;
-                    const printAmount = selectedThermalTx.amount;
-                    const printMethod = selectedThermalTx.method;
-                    const printSenderName = selectedThermalTx.senderName || selectedThermalTx.customerName || 'N/A';
-                    const printSenderId = selectedThermalTx.senderId || selectedThermalTx.customerId || 'N/A';
-                    const printReceiverName = selectedThermalTx.receiverName || 'N/A';
-                    const printReceiverPhone = selectedThermalTx.receiverPhone || 'N/A';
-                    const printReceiverBankName = selectedThermalTx.receiverBankName || 'N/A';
-                    const printReceiverBankAccountNumber = selectedThermalTx.receiverBankAccountNumber || 'N/A';
-                    const printReceiverAccountName = selectedThermalTx.receiverAccountName || '';
-                    const printStatus = selectedThermalTx.status;
-                    
-                    let printDateStr = '';
-                    if (selectedThermalTx.timestamp) {
-                      const ts = selectedThermalTx.timestamp;
-                      if (typeof ts.toDate === 'function') {
-                        printDateStr = ts.toDate().toLocaleString();
-                      } else if (ts.seconds) {
-                        printDateStr = new Date(ts.seconds * 1000).toLocaleString();
+                  <div id="thermal-receipt-content" className="space-y-4">
+                    {(selectedThermalTxs.length > 0 ? selectedThermalTxs : (selectedThermalTx ? [selectedThermalTx] : [])).map((tx, idx) => {
+                      if (!tx) return null;
+                      const printTxType = tx.type;
+                      const printTxId = tx.transitionId || tx.id;
+                      const printAmount = tx.amount;
+                      const printMethod = tx.method;
+                      const printSenderName = tx.senderName || tx.customerName || 'N/A';
+                      const printSenderId = tx.senderId || tx.customerId || 'N/A';
+                      const printReceiverName = tx.receiverName || 'N/A';
+                      const printReceiverPhone = tx.receiverPhone || 'N/A';
+                      const printReceiverBankName = tx.receiverBankName || 'N/A';
+                      const printReceiverBankAccountNumber = tx.receiverBankAccountNumber || 'N/A';
+                      const printReceiverAccountName = tx.receiverAccountName || '';
+                      const printStatus = tx.status;
+                      
+                      let printDateStr = '';
+                      if (tx.timestamp) {
+                        const ts = tx.timestamp;
+                        if (typeof ts.toDate === 'function') {
+                          printDateStr = ts.toDate().toLocaleString();
+                        } else if (ts.seconds !== undefined) {
+                          printDateStr = new Date(ts.seconds * 1000).toLocaleString();
+                        } else {
+                          printDateStr = new Date(ts).toLocaleString();
+                        }
                       } else {
-                        printDateStr = new Date(ts).toLocaleString();
+                        printDateStr = receiptIncludeTime ? new Date().toLocaleString() : new Date().toLocaleDateString();
                       }
-                    } else {
-                      printDateStr = receiptIncludeTime ? new Date().toLocaleString() : new Date().toLocaleDateString();
-                    }
 
-                    return (
-                      <div 
-                        id="thermal-receipt-content" 
-                        className={cn(
-                          "p-6 bg-white text-black border border-zinc-300 shadow-lg transition-all",
-                          receiptFont === 'mono' ? 'font-mono' : 'font-sans',
-                          receiptWidth === '58mm' ? 'w-[260px]' : 'w-[350px]'
-                        )}
-                      >
-                        <div className="text-center">
-                          {settings?.logoUrl && (
-                            <div className="flex justify-center mb-2">
-                              <img src={settings.logoUrl} alt="Logo" className="h-8 max-w-[120px] object-contain rounded-sm" referrerPolicy="no-referrer" />
+                      return (
+                        <div 
+                          key={tx.id || idx}
+                          className={cn(
+                            "p-6 bg-white text-black border border-zinc-300 shadow-lg transition-all relative receipt-block",
+                            receiptFont === 'mono' ? 'font-mono' : 'font-sans',
+                            receiptWidth === '58mm' ? 'w-[260px]' : 'w-[350px]'
+                          )}
+                        >
+                          {selectedThermalTxs.length > 1 && (
+                            <div className="absolute top-2 right-2 bg-slate-100 text-slate-600 text-[8px] font-extrabold px-1.5 py-0.5 rounded border border-slate-200 print:hidden select-none">
+                              #{idx + 1}
                             </div>
                           )}
-                          <div className={cn("font-black uppercase tracking-wider mb-1 leading-tight", receiptFontSize === 'large' ? 'text-sm' : 'text-xs')}>
-                            {receiptTitle}
-                          </div>
-                          <div className="text-[9px] font-bold tracking-tight">
-                            OFFICIAL RECEIPT SLIP
-                          </div>
-                          {includeAgentId && (
-                            <>
-                              <div className="text-[8px] mt-1 font-medium">
-                                Agent Name: {selectedThermalTx.agentName || 'Central Office'}
-                              </div>
-                              <div className="text-[8px] font-medium">
-                                Agent ID: {selectedThermalTx.agentId || 'N/A'}
-                              </div>
-                            </>
-                          )}
-                        </div>
-
-                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
-
-                        <div className="space-y-0.5 text-[8px] leading-tight text-left">
-                          <div className="flex justify-between">
-                            <span>TRANSACTION:</span>
-                            <span className="font-bold uppercase">{printTxType} REQUEST</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>STATUS:</span>
-                            <span className="font-bold uppercase">{printStatus}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>TIMESTAMP:</span>
-                            <span>{printDateStr}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>REFERENCE:</span>
-                            <span className="font-bold font-mono">{printTxId}</span>
-                          </div>
-                        </div>
-
-                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
-
-                        {printTxType === 'DEPOSIT' ? (
-                          <div className="space-y-1 text-[8px] leading-tight text-left">
-                            <div className="flex justify-between font-bold">
-                              <span>DEPOSIT AMOUNT:</span>
-                              <span>${printAmount.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Payment Method:</span>
-                              <span className="uppercase font-bold">{printMethod || 'Bank'}</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-1 text-[8px] leading-tight text-left">
-                            {includeCustomerPhone && (
-                              <div>
-                                <span className="font-bold">CUSTOMER (SENDER)</span>
-                                <div className="pl-1.5 font-mono text-[7px]">{printSenderName} ({printSenderId})</div>
+                          <div className="text-center">
+                            {settings?.logoUrl && (
+                              <div className="flex justify-center mb-2">
+                                <img src={settings.logoUrl} alt="Logo" className="h-8 max-w-[120px] object-contain rounded-sm" referrerPolicy="no-referrer" />
                               </div>
                             )}
-                            <div className="mt-1">
-                              <span className="font-bold">RECEIVER (RECIPIENT)</span>
-                              <div className="pl-1.5 font-mono text-[7px]">{printReceiverName} ({printReceiverPhone})</div>
-                              <div className="pl-1.5 font-mono text-[7px]">Method: {printMethod}</div>
-                              {printMethod === 'Bank' ? (
-                                <div className="pl-1.5 text-[7px] italic">
-                                  Bank: {printReceiverBankName} - A/C: {printReceiverBankAccountNumber}
+                            <div className={cn("font-black uppercase tracking-wider mb-1 leading-tight", receiptFontSize === 'large' ? 'text-sm' : 'text-xs')}>
+                              {receiptTitle}
+                            </div>
+                            <div className="text-[9px] font-bold tracking-tight">
+                              OFFICIAL RECEIPT SLIP
+                            </div>
+                            {includeAgentId && (
+                              <>
+                                <div className="text-[8px] mt-1 font-medium">
+                                  Agent Name: {tx.agentName || 'Central Office'}
                                 </div>
-                              ) : (
-                                printReceiverAccountName && (
-                                  <div className="pl-1.5 text-[7px] italic">
-                                    Holder Name: {printReceiverAccountName}
-                                  </div>
-                                )
-                              )}
+                                <div className="text-[8px] font-medium">
+                                  Agent ID: {tx.agentId || 'N/A'}
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                          <div className="space-y-0.5 text-[8px] leading-tight text-left">
+                            <div className="flex justify-between">
+                              <span>TRANSACTION:</span>
+                              <span className="font-bold uppercase">{printTxType} REQUEST</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>STATUS:</span>
+                              <span className="font-bold uppercase">{printStatus}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>TIMESTAMP:</span>
+                              <span>{printDateStr}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>REFERENCE:</span>
+                              <span className="font-bold font-mono">{printTxId}</span>
                             </div>
                           </div>
-                        )}
 
-                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+                          <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
 
-                        <div className="space-y-0.5 text-[8px] leading-tight text-left">
-                          <div className="flex justify-between font-black text-[10px]">
-                            <span>TOTAL VALUE:</span>
-                            <span>${printAmount.toFixed(2)}</span>
-                          </div>
-                          {printTxType === 'WITHDRAWAL' ? (
-                            <>
+                          {printTxType === 'DEPOSIT' ? (
+                            <div className="space-y-1 text-[8px] leading-tight text-left">
+                              <div className="flex justify-between font-bold">
+                                <span>DEPOSIT AMOUNT:</span>
+                                <span>${printAmount.toFixed(2)}</span>
+                              </div>
                               <div className="flex justify-between">
-                                <span>CONV. RATE:</span>
-                                <span>1 USD = {selectedThermalTx.conversionRate || settings?.usdToBdt || 120} BDT</span>
+                                <span>Payment Method:</span>
+                                <span className="uppercase font-bold">{printMethod || 'Bank'}</span>
                               </div>
-                              <div className="flex justify-between font-bold text-[9px] mt-0.5">
-                                <span>PAYOUT (BDT):</span>
-                                <span>৳{(printAmount * (selectedThermalTx.conversionRate || settings?.usdToBdt || 120)).toFixed(2)}</span>
-                              </div>
-                            </>
+                            </div>
                           ) : (
-                            <div className="flex justify-between">
-                              <span>SERVICE FEE:</span>
-                              <span>$0.00 (FREE)</span>
+                            <div className="space-y-1 text-[8px] leading-tight text-left">
+                              {includeCustomerPhone && (
+                                <div>
+                                  <span className="font-bold">CUSTOMER (SENDER)</span>
+                                  <div className="pl-1.5 font-mono text-[7px]">{printSenderName} ({printSenderId})</div>
+                                </div>
+                              )}
+                              <div className="mt-1">
+                                <span className="font-bold">RECEIVER (RECIPIENT)</span>
+                                <div className="pl-1.5 font-mono text-[7px]">{printReceiverName} ({printReceiverPhone})</div>
+                                <div className="pl-1.5 font-mono text-[7px]">Method: {printMethod}</div>
+                                {printMethod === 'Bank' ? (
+                                  <div className="pl-1.5 text-[7px] italic">
+                                    Bank: {printReceiverBankName} - A/C: {printReceiverBankAccountNumber}
+                                  </div>
+                                ) : (
+                                  printReceiverAccountName && (
+                                    <div className="pl-1.5 text-[7px] italic">
+                                      Holder Name: {printReceiverAccountName}
+                                    </div>
+                                  )
+                                )}
+                              </div>
                             </div>
                           )}
-                        </div>
 
-                        <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+                          <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
 
-                        <div className="text-center text-[7px] space-y-1.5 leading-tight">
-                          {receiptCustomFooter && <p className="italic">{receiptCustomFooter}</p>}
-                          <div className="barcode border border-black py-1.5 px-1 max-w-[120px] mx-auto text-[6px] tracking-[2px] font-mono select-none">
-                            ||||||| | |||| | ||||||
-                            <div className="text-[5px] tracking-normal font-sans mt-0.5 uppercase font-bold">*{printTxId}*</div>
+                          <div className="space-y-0.5 text-[8px] leading-tight text-left">
+                            <div className="flex justify-between font-black text-[10px]">
+                              <span>TOTAL VALUE:</span>
+                              <span>${printAmount.toFixed(2)}</span>
+                            </div>
+                            {printTxType === 'WITHDRAWAL' ? (
+                              <>
+                                <div className="flex justify-between">
+                                  <span>CONV. RATE:</span>
+                                  <span>1 USD = {tx.conversionRate || settings?.usdToBdt || 120} BDT</span>
+                                </div>
+                                <div className="flex justify-between font-bold text-[9px] mt-0.5">
+                                  <span>PAYOUT (BDT):</span>
+                                  <span>৳{(printAmount * (tx.conversionRate || settings?.usdToBdt || 120)).toFixed(2)}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex justify-between">
+                                <span>SERVICE FEE:</span>
+                                <span>$0.00 (FREE)</span>
+                              </div>
+                            )}
                           </div>
-                          <p className="text-[6px] text-zinc-500 font-sans mt-0.5">Wallet Pro terminal. Secure receipt slip.</p>
+
+                          <div className="dashed-line border-t border-dashed border-black my-2.5"></div>
+
+                          <div className="text-center text-[7px] space-y-1.5 leading-tight">
+                            {receiptCustomFooter && <p className="italic">{receiptCustomFooter}</p>}
+                            <div className="barcode border border-black py-1.5 px-1 max-w-[120px] mx-auto text-[6px] tracking-[2px] font-mono select-none">
+                              ||||||| | |||| | ||||||
+                              <div className="text-[5px] tracking-normal font-sans mt-0.5 uppercase font-bold">*{printTxId}*</div>
+                            </div>
+                            <p className="text-[6px] text-zinc-500 font-sans mt-0.5">Wallet Pro terminal. Secure receipt slip.</p>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -2281,15 +2521,26 @@ function AuthScreen({
       provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
     } catch (err: any) {
-      console.error('Google Sign-In Error:', err);
+      const isExpectedError = 
+        err.code === 'auth/popup-blocked' ||
+        err.code === 'auth/cancelled-popup-request' ||
+        err.code === 'auth/internal-error' ||
+        err.code === 'auth/popup-closed-by-user';
+
+      if (isExpectedError) {
+        console.warn('Google Sign-In popup closed, blocked or cancelled (handling gracefully):', err);
+      } else {
+        console.error('Google Sign-In Error:', err);
+      }
+
       // Fallback: If popup is blocked/prevented inside sandboxed development iframe, use redirect
-      if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request' || err.code === 'auth/internal-error') {
+      if (isExpectedError) {
         try {
           const provider = new GoogleAuthProvider();
           await signInWithRedirect(auth, provider);
           return;
         } catch (redirErr: any) {
-          console.error('Redirect login also failed:', redirErr);
+          console.warn('Redirect login warning (ignoring):', redirErr);
         }
       }
       
@@ -2300,6 +2551,8 @@ function AuthScreen({
         errMsg = 'The Google login popup was blocked. Please permit popups, open the app in a new tab using the link on top, or try sandbox bypass mode!';
       } else if (err.code === 'auth/unauthorized-domain') {
         errMsg = `This domain (${window.location.hostname}) is not authorized in Firebase Console yet. Please add it to your Authorized Domains list in Firebase Settings.`;
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        errMsg = 'The Google login popup was closed. If you are having issues with popups in the preview window, please try clicking the "Sandbox Mode" tab above or open the app in a "New Tab" from the top-right link! (গুগল সাইন-ইন পপআপ বন্ধ হয়ে গেছে। ফায়ারবেস বা ব্রাউজার ব্লকের কারণে হলে উপরে "Sandbox Mode" সিলেক্ট করে ট্রাই করুন, অথবা নিউ ট্যাবে ওপেন করুন)';
       } else {
         errMsg = `${err.message || err}. Google login failed. Tip: Try opening in a "New Tab" at the top-right, or activate Sandbox Mode!`;
       }
@@ -2326,7 +2579,13 @@ function AuthScreen({
         <div className="flex flex-col items-center mb-6 text-center">
           {settings?.logoUrl ? (
             <div className="flex items-center justify-center mb-4">
-              <img src={settings.logoUrl} alt="Logo" className="h-16 w-auto max-w-[200px] object-contain rounded-xl" referrerPolicy="no-referrer" />
+              <img 
+                src={settings.logoUrl} 
+                alt="Logo" 
+                className="w-auto max-w-[280px] object-contain rounded-xl" 
+                style={{ height: `${settings.logoLoginHeight ?? 64}px` }}
+                referrerPolicy="no-referrer" 
+              />
             </div>
           ) : (
             <>
@@ -2367,9 +2626,27 @@ function AuthScreen({
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 text-xs font-semibold leading-relaxed"
+            className="mb-6 p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-600 text-xs font-semibold leading-relaxed space-y-3"
           >
-            {error}
+            <div>{error}</div>
+            {(error.includes('popup') || error.includes('closed') || window.self !== window.top) && (
+              <div className="pt-1.5 flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => window.open(window.location.href, '_blank')}
+                  className="w-full py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <span>🚀 Open App in New Tab (নিউ ট্যাবে ওপেন করুন)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onToggleOffline(true); setError(null); }}
+                  className="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-[11px] transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <span>⚡ Switch to Sandbox Mode (স্যান্ডবক্স মোডে টেস্ট করুন)</span>
+                </button>
+              </div>
+            )}
           </motion.div>
         )}
 
@@ -2579,15 +2856,28 @@ function AuthScreen({
                 </div>
 
                 {/* Provider Login */}
-                <button
-                  type="button"
-                  onClick={handleGoogleLogin}
-                  disabled={authLoading}
-                  className="w-full py-4 px-6 bg-white border-2 border-slate-100 hover:border-indigo-600 rounded-2xl flex items-center justify-center gap-3 font-bold text-slate-700 transition-all hover:shadow-md hover:shadow-slate-50 active:scale-95 disabled:opacity-50 text-sm mb-6"
-                >
-                  <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
-                  Continue with Google
-                </button>
+                <div className="space-y-1.5 mb-6">
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    disabled={authLoading}
+                    className="w-full py-4 px-6 bg-white border-2 border-slate-100 hover:border-indigo-600 rounded-2xl flex items-center justify-center gap-3 font-bold text-slate-700 transition-all hover:shadow-md hover:shadow-slate-50 active:scale-95 disabled:opacity-50 text-sm cursor-pointer"
+                  >
+                    <img src="https://www.google.com/favicon.ico" className="w-4 h-4" alt="Google" />
+                    Continue with Google
+                  </button>
+                  {window.self !== window.top && (
+                    <div className="text-center">
+                      <button
+                        type="button"
+                        onClick={() => window.open(window.location.href, '_blank')}
+                        className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 hover:underline transition-all cursor-pointer"
+                      >
+                        💡 Popup blocked? Click here to sign in in a New Tab
+                      </button>
+                    </div>
+                  )}
+                </div>
 
                 {/* Sandbox accounts helper */}
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-2.5">
@@ -2954,7 +3244,20 @@ function PendingScreen({ onLogout }: { onLogout: () => void }) {
 
 // --- Dashboards ---
 
-function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, isOffline?: boolean, key?: string }) {
+function AdminDashboard({ 
+  profile, 
+  isOffline = false, 
+  onOpenProfile,
+  onTriggerPrint,
+  onTriggerBulkPrint
+}: { 
+  profile: UserProfile, 
+  isOffline?: boolean, 
+  onOpenProfile?: () => void,
+  onTriggerPrint?: (tx: Transaction) => void,
+  onTriggerBulkPrint?: (txs: Transaction[]) => void,
+  key?: string 
+}) {
   const [agents, setAgents] = useState<UserProfile[]>([]);
   const [customers, setCustomers] = useState<UserProfile[]>([]);
   const [pendingTransactions, setPendingTransactions] = useState<Transaction[]>([]);
@@ -2965,6 +3268,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [activeAgentSearchQuery, setActiveAgentSearchQuery] = useState('');
   const [activeAgentSort, setActiveAgentSort] = useState<'HIGHEST_BALANCE' | 'NEWEST_JOINED' | 'MOST_ACTIVE'>('HIGHEST_BALANCE');
   const [agentDeleteConfirmAction, setAgentDeleteConfirmAction] = useState<UserProfile | null>(null);
+  const [isLiveUpdate, setIsLiveUpdate] = useState(true);
 
   const getAgentJoinTimeMs = (agent: UserProfile) => {
     const agentTxs = allTransactions.filter(tx => tx.agentId === agent.uid);
@@ -3060,7 +3364,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
 
   // Admin Custom Tabs support
-  const [adminActiveTab, setAdminActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_APPROVALS' | 'TRANSACTION_HISTORY' | 'AGENT_REQUESTS' | 'ACTIVE_AGENTS' | 'SYSTEM_CONTROL' | 'LIVE_CURRENCY'>('OVERVIEW');
+  const [adminActiveTab, setAdminActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_APPROVALS' | 'TRANSACTION_HISTORY' | 'AGENT_REQUESTS' | 'ACTIVE_AGENTS' | 'SYSTEM_CONTROL' | 'LIVE_CURRENCY' | 'BRAND_LOGO'>('OVERVIEW');
   const [adminSystemSubTab, setAdminSystemSubTab] = useState<'RATES' | 'DELETE_DATA' | 'SYSTEM_LOGS' | 'FEEDBACK_REPORTS'>('RATES');
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [adminDelSearch, setAdminDelSearch] = useState('');
@@ -3327,6 +3631,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   const [invoiceDisclaimerInput, setInvoiceDisclaimerInput] = useState('');
   const [logoInput, setLogoInput] = useState('');
   const [logoNavHeightInput, setLogoNavHeightInput] = useState<number>(32);
+  const [logoLoginHeightInput, setLogoLoginHeightInput] = useState<number>(64);
+  const [siteFontInput, setSiteFontInput] = useState('Inter');
+  const [primaryColorInput, setPrimaryColorInput] = useState('indigo');
+  const [siteFontSizeInput, setSiteFontSizeInput] = useState('normal');
   const [isLogoEditorOpen, setIsLogoEditorOpen] = useState(false);
   const [logoEditorSrc, setLogoEditorSrc] = useState('');
   const [enableMonthlyAutoReports, setEnableMonthlyAutoReports] = useState(false);
@@ -3804,29 +4112,83 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     };
   }, [filteredReportTransactions]);
 
+  const loadLocalData = () => {
+    const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
+    const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('sandbox_transactions') || '[]');
+    const localSettings: SystemSettings = JSON.parse(localStorage.getItem('sandbox_settings') || '{"usdToBdt": 120.5, "eurToBdt": 131.2, "commissionPercent": 2.5, "agentCommission": 1.5}');
+    const localLogs = JSON.parse(localStorage.getItem('sandbox_system_logs') || '[]');
+    const localFeedbacks = JSON.parse(localStorage.getItem('sandbox_feedbacks') || '[]');
+    const localEmailLogs = JSON.parse(localStorage.getItem('sandbox_email_logs') || '[]');
+    
+    setAgents(localUsers.filter(u => u.role === 'AGENT'));
+    setCustomers(localUsers.filter(u => u.role === 'CUSTOMER'));
+    setPendingTransactions(localTransactions.filter(t => t.status === 'PENDING'));
+    setAllTransactions(localTransactions);
+    setSettings(localSettings);
+    setSystemLogs(localLogs);
+    setFeedbacks(localFeedbacks);
+    setEmailLogs(localEmailLogs);
+  };
+
+  const loadStaticDataOnline = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const sSnap = await getDoc(doc(db, 'settings', 'global'));
+      if (sSnap.exists()) {
+        setSettings(sSnap.data() as SystemSettings);
+      }
+
+      const isAdminUser = profile?.role === 'ADMIN' || 
+                          user.email === 'admin@walletpro.com' || 
+                          user.email === 'nafizsoftvence@gmail.com';
+
+      if (isAdminUser) {
+        const qAgents = query(collection(db, 'users'), where('role', '==', 'AGENT'));
+        const qCust = query(collection(db, 'users'), where('role', '==', 'CUSTOMER'));
+        const qTx = query(collection(db, 'transactions'), where('status', '==', 'PENDING'), orderBy('timestamp', 'desc'));
+        const qAllTx = query(collection(db, 'transactions'), orderBy('timestamp', 'asc'));
+        const qLogs = query(collection(db, 'system_logs'), orderBy('timestamp', 'desc'));
+        const qFeedback = query(collection(db, 'feedback'), orderBy('timestamp', 'desc'));
+        const qEmails = query(collection(db, 'email_logs'), orderBy('sentAt', 'desc'));
+
+        const [sAgents, sCust, sTx, sAllTx, sLogs, sFeedback, sEmails] = await Promise.all([
+          getDocs(qAgents),
+          getDocs(qCust),
+          getDocs(qTx),
+          getDocs(qAllTx),
+          getDocs(qLogs),
+          getDocs(qFeedback),
+          getDocs(qEmails)
+        ]);
+
+        setAgents(sAgents.docs.map(d => d.data() as UserProfile));
+        setCustomers(sCust.docs.map(d => d.data() as UserProfile));
+        setPendingTransactions(sTx.docs.map(d => ({ ...d.data(), id: d.id } as Transaction)));
+        setAllTransactions(sAllTx.docs.map(d => ({ ...d.data(), id: d.id } as Transaction)));
+        setSystemLogs(sLogs.docs.map(d => ({ ...d.data(), id: d.id } as any)));
+        setFeedbacks(sFeedback.docs.map(d => ({ ...d.data(), id: d.id } as any)));
+        setEmailLogs(sEmails.docs.map(d => ({ ...d.data(), id: d.id } as any)));
+      }
+    } catch (err) {
+      console.error("Error loading static data online:", err);
+    }
+  };
+
+  const handleManualRefresh = () => {
+    if (isOffline) {
+      loadLocalData();
+    } else {
+      loadStaticDataOnline();
+    }
+  };
+
   useEffect(() => {
     if (isOffline) {
-      const loadLocalData = () => {
-        const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
-        const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('sandbox_transactions') || '[]');
-        const localSettings: SystemSettings = JSON.parse(localStorage.getItem('sandbox_settings') || '{"usdToBdt": 120.5, "eurToBdt": 131.2, "commissionPercent": 2.5, "agentCommission": 1.5}');
-        const localLogs = JSON.parse(localStorage.getItem('sandbox_system_logs') || '[]');
-        const localFeedbacks = JSON.parse(localStorage.getItem('sandbox_feedbacks') || '[]');
-        const localEmailLogs = JSON.parse(localStorage.getItem('sandbox_email_logs') || '[]');
-        
-        setAgents(localUsers.filter(u => u.role === 'AGENT'));
-        setCustomers(localUsers.filter(u => u.role === 'CUSTOMER'));
-        setPendingTransactions(localTransactions.filter(t => t.status === 'PENDING'));
-        setAllTransactions(localTransactions);
-        setSettings(localSettings);
-        setSystemLogs(localLogs);
-        setFeedbacks(localFeedbacks);
-        setEmailLogs(localEmailLogs);
-      };
-      
       loadLocalData();
+      if (!isLiveUpdate) return;
       
-      // Keep state reactive
       const interval = setInterval(loadLocalData, 1000);
       window.addEventListener('storage', loadLocalData);
       return () => {
@@ -3849,16 +4211,19 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       return;
     }
 
+    if (!isLiveUpdate) {
+      loadStaticDataOnline();
+      return;
+    }
+
     const unsubscribers: (() => void)[] = [];
 
-    // Global Settings is needed by all authenticated users
     const qSet = doc(db, 'settings', 'global');
     const u4 = onSnapshot(qSet, s => s.exists() ? setSettings(s.data() as SystemSettings) : null, (err) => {
       if (auth.currentUser) handleFirestoreError(err, OperationType.GET, 'settings/global');
     });
     unsubscribers.push(u4);
 
-    // Admin-only collections
     const isAdminUser = profile?.role === 'ADMIN' || 
                         user.email === 'admin@walletpro.com' || 
                         user.email === 'nafizsoftvence@gmail.com';
@@ -3900,7 +4265,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
     return () => {
       unsubscribers.forEach(unsub => unsub());
     };
-  }, [isOffline, profile]);
+  }, [isOffline, profile, isLiveUpdate]);
 
   useEffect(() => {
     if (settings) {
@@ -3912,6 +4277,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
       setInvoiceDisclaimerInput(settings.invoiceDisclaimer ?? 'Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference.');
       setLogoInput(settings.logoUrl ?? '');
       setLogoNavHeightInput(settings.logoNavHeight ?? 32);
+      setLogoLoginHeightInput(settings.logoLoginHeight ?? 64);
+      setSiteFontInput(settings.siteFont ?? 'Inter');
+      setPrimaryColorInput(settings.primaryColor ?? 'indigo');
+      setSiteFontSizeInput(settings.siteFontSize ?? 'normal');
       setEnableMonthlyAutoReports(settings.enableMonthlyAutoReports ?? false);
       setMonthlyAutoReportDay((settings.monthlyAutoReportDay ?? 1).toString());
       setMonthlyAutoReportFormat(settings.monthlyAutoReportFormat ?? 'PDF_AND_SUMMARY');
@@ -3942,9 +4311,13 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         invoiceDisclaimer: invoiceDisclaimerInput.trim() || 'Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference.',
         logoUrl: logoInput.trim(),
         logoNavHeight: logoNavHeightInput,
+        logoLoginHeight: logoLoginHeightInput,
         enableMonthlyAutoReports,
         monthlyAutoReportDay: parseInt(monthlyAutoReportDay) || 1,
         monthlyAutoReportFormat,
+        siteFont: siteFontInput,
+        primaryColor: primaryColorInput,
+        siteFontSize: siteFontSizeInput,
       };
 
       if (isOffline) {
@@ -4367,69 +4740,93 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
   return (
     <div className="flex flex-col md:flex-row gap-8 min-h-screen">
       {/* Sidebar Navigation */}
-      <aside className="w-72 bg-white border border-slate-200 rounded-[2rem] p-6 md:block hidden shrink-0 self-start shadow-sm sticky top-6">
-        <div className="flex items-center gap-3 mb-8 px-2">
-          {settings?.logoUrl ? (
-            <div className="w-10 h-10 bg-white border border-slate-150 rounded-2xl flex items-center justify-center p-1.5 shadow-xs overflow-hidden shrink-0">
-              <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-md" referrerPolicy="no-referrer" />
-            </div>
-          ) : (
+      <aside className="w-72 bg-white border border-slate-200 rounded-[2rem] p-6 md:flex hidden flex-col shrink-0 self-start shadow-sm sticky top-6 h-[calc(100vh-5rem)] min-h-[620px] justify-between">
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center gap-3 px-2">
             <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-md shrink-0">
               <ShieldCheck size={20} />
             </div>
-          )}
-          <div>
-            <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase leading-none">Admin Hub</h2>
-            <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md mt-1 inline-block">SYSTEM SUPERVISOR</span>
+            <div>
+              <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase leading-none">Admin Hub</h2>
+              <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md mt-1 inline-block">SYSTEM SUPERVISOR</span>
+            </div>
           </div>
+
+          <nav className="space-y-1.5">
+            {[
+              { id: 'OVERVIEW' as const, label: 'Overview', icon: LayoutDashboard },
+              { id: 'TRANSACTION_APPROVALS' as const, label: 'Approvals', icon: Check, count: pendingTransactions.length },
+              { id: 'TRANSACTION_HISTORY' as const, label: 'History', icon: History },
+              { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
+              { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
+              { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
+              { id: 'BRAND_LOGO' as const, label: 'Brand Logo and setting', icon: Image },
+              { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
+            ].map((t) => {
+              const Icon = t.icon;
+              const isActive = adminActiveTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setAdminActiveTab(t.id)}
+                  className={cn(
+                    "w-full flex items-center justify-between px-4.5 py-3.5 rounded-2xl text-xs font-bold transition-all group cursor-pointer border-l-4",
+                    isActive
+                      ? "bg-indigo-600 text-white shadow-sm border-indigo-700 font-extrabold"
+                      : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon size={16} className={cn(isActive ? "text-white" : "text-slate-400 group-hover:text-slate-600")} />
+                    <span>{t.label}</span>
+                  </div>
+                  {t.count !== undefined && t.count > 0 && (
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-lg text-[10px] font-extrabold font-mono",
+                      isActive ? "bg-white text-indigo-600" : "bg-indigo-100 text-indigo-700"
+                    )}>
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        <nav className="space-y-1.5">
-          {[
-            { id: 'OVERVIEW' as const, label: 'Overview', icon: LayoutDashboard },
-            { id: 'TRANSACTION_APPROVALS' as const, label: 'Approvals', icon: Check, count: pendingTransactions.length },
-            { id: 'TRANSACTION_HISTORY' as const, label: 'History', icon: History },
-            { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
-            { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
-            { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
-            { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
-          ].map((t) => {
-            const Icon = t.icon;
-            const isActive = adminActiveTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setAdminActiveTab(t.id)}
-                className={cn(
-                  "w-full flex items-center justify-between px-4.5 py-3.5 rounded-2xl text-xs font-bold transition-all group cursor-pointer border-l-4",
-                  isActive
-                    ? "bg-indigo-600 text-white shadow-sm border-indigo-700 font-extrabold"
-                    : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon size={16} className={cn(isActive ? "text-white" : "text-slate-400 group-hover:text-slate-600")} />
-                  <span>{t.label}</span>
-                </div>
-                {t.count !== undefined && t.count > 0 && (
-                  <span className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-extrabold font-mono",
-                    isActive ? "bg-white text-indigo-600" : "bg-indigo-100 text-indigo-700"
-                  )}>
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="pt-8 border-t border-slate-100 mt-8">
-          <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl">
-            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Signed In As</span>
-            <p className="text-xs font-black text-slate-800 truncate">{profile.name}</p>
-            <p className="text-[10px] text-slate-500 font-bold font-mono">{profile.phone}</p>
-          </div>
+        <div className="pt-6 border-t border-slate-100 mt-auto">
+          <button 
+            onClick={onOpenProfile}
+            className="w-full flex items-center gap-3 text-left p-2.5 hover:bg-slate-50 rounded-2xl transition-all focus:outline-none cursor-pointer border border-transparent hover:border-slate-150"
+            title="Edit Profile Settings"
+          >
+            {profile.photoURL ? (
+              <div className="flex items-center justify-center shrink-0">
+                <img 
+                  src={profile.photoURL} 
+                  alt={profile.name || "Profile"} 
+                  className="w-10 h-10 rounded-full object-cover border-2 border-indigo-600 shadow-sm" 
+                  referrerPolicy="no-referrer" 
+                />
+              </div>
+            ) : (
+              <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-extrabold text-sm border-2 border-indigo-200 uppercase shrink-0 font-sans shadow-xs">
+                {profile.name ? profile.name.slice(0, 2) : 'WP'}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-xs text-slate-800 truncate block max-w-[110px]">
+                  {profile.name || 'Admin'}
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider shrink-0 bg-rose-100 text-rose-800 border border-rose-200 font-sans">
+                  Admin
+                </span>
+              </div>
+              <p className="text-[9px] text-slate-500 font-medium font-mono truncate">{profile.phone || 'No phone'}</p>
+              <span className="text-[9px] text-indigo-600 font-bold hover:underline block mt-0.5 font-sans">Edit Profile</span>
+            </div>
+          </button>
         </div>
       </aside>
 
@@ -4454,15 +4851,9 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
               <div>
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-2.5">
-                    {settings?.logoUrl ? (
-                      <div className="w-8 h-8 bg-white border border-slate-150 rounded-xl flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
-                        <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-sm" referrerPolicy="no-referrer" />
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm shrink-0">
-                        <ShieldCheck size={16} />
-                      </div>
-                    )}
+                    <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm shrink-0">
+                      <ShieldCheck size={16} />
+                    </div>
                     <span className="font-extrabold text-sm text-slate-850 uppercase tracking-tight">Admin Hub</span>
                   </div>
                   <button onClick={() => setMobileSidebarOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
@@ -4478,6 +4869,7 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                     { id: 'AGENT_REQUESTS' as const, label: 'Agent Requests', icon: Users, count: agents.filter(a => a.status === 'PENDING').length },
                     { id: 'ACTIVE_AGENTS' as const, label: 'Active Agents', icon: ShieldCheck, count: agents.filter(a => a.status === 'ACTIVE').length },
                     { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
+                    { id: 'BRAND_LOGO' as const, label: 'Brand Logo and setting', icon: Image },
                     { id: 'SYSTEM_CONTROL' as const, label: 'System Control', icon: Settings },
                   ].map((t) => {
                     const Icon = t.icon;
@@ -4533,21 +4925,23 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             className="p-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
           >
             <List size={16} />
-            <span className="text-[10px] font-black uppercase tracking-wider">NAV MENU</span>
+            <span className="text-[10px] font-black uppercase tracking-wider font-sans">NAV MENU</span>
           </button>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            
+
+            <div className="flex items-center gap-3">
             <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block bg-indigo-50/70 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
               {adminActiveTab === 'OVERVIEW' ? 'Overview' :
                adminActiveTab === 'TRANSACTION_APPROVALS' ? 'Approvals' :
                adminActiveTab === 'TRANSACTION_HISTORY' ? 'History' :
                adminActiveTab === 'AGENT_REQUESTS' ? 'Requests' :
-               adminActiveTab === 'ACTIVE_AGENTS' ? 'Agents' : 'System Control'}
+               adminActiveTab === 'ACTIVE_AGENTS' ? 'Agents' :
+               adminActiveTab === 'BRAND_LOGO' ? 'Brand Logo and setting' : 'System Control'}
             </span>
             {/* Mobile Alerts Bell */}
-            <div className="relative">
-              <button
-                onClick={() => setShowBellDropdown(!showBellDropdown)}
+            <button onClick={() => setShowBellDropdown(!showBellDropdown)}
                 className="p-2 text-slate-400 hover:text-slate-700 transition-all bg-slate-100 hover:bg-slate-200 rounded-xl cursor-pointer relative shrink-0"
                 title="Alert Center"
               >
@@ -4614,8 +5008,10 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             <h1 className="text-sm font-black text-slate-800 hidden xs:block">Welcome back, {profile.name}</h1>
           </div>
 
-          {/* Bell Notification Element */}
-          <div className="relative flex items-center gap-2">
+          <div className="relative flex items-center gap-3.5">
+            
+
+            {/* Bell Notification Element */}
             <div className="relative">
               <button
                 onClick={() => setShowBellDropdown(!showBellDropdown)}
@@ -4929,17 +5325,38 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
             ))}
           </div>
 
-          {filteredAllTransactions.some(tx => tx.status === 'PENDING') && (
-            <button
-              onClick={handleToggleSelectAllPending}
-              className="mb-2 sm:mb-0 text-[10px] font-black uppercase tracking-wider text-indigo-650 hover:text-indigo-850 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl cursor-pointer transition-colors leading-none shrink-0"
-            >
-              {filteredAllTransactions.filter(tx => tx.status === 'PENDING').every(tx => selectedTxIds.has(tx.id)) 
-                ? "Deselect All Pending" 
-                : "Select All Pending"
-              }
-            </button>
-          )}
+          <div className="flex items-center flex-wrap gap-3">
+            <label className="mb-2 sm:mb-0 flex items-center gap-2 font-extrabold text-slate-600 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl cursor-pointer transition-colors leading-none shrink-0 select-none">
+              <input
+                type="checkbox"
+                checked={
+                  filteredAllTransactions.length > 0 &&
+                  filteredAllTransactions.every(tx => selectedTxIds.has(tx.id))
+                }
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedTxIds(new Set(filteredAllTransactions.map(tx => tx.id)));
+                  } else {
+                    setSelectedTxIds(new Set());
+                  }
+                }}
+                className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer accent-indigo-600"
+              />
+              <span className="text-[10px] uppercase tracking-wider">Select All Filtered ({filteredAllTransactions.length})</span>
+            </label>
+
+            {filteredAllTransactions.some(tx => tx.status === 'PENDING') && (
+              <button
+                onClick={handleToggleSelectAllPending}
+                className="mb-2 sm:mb-0 text-[10px] font-black uppercase tracking-wider text-indigo-650 hover:text-indigo-850 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-xl cursor-pointer transition-colors leading-none shrink-0"
+              >
+                {filteredAllTransactions.filter(tx => tx.status === 'PENDING').every(tx => selectedTxIds.has(tx.id)) 
+                  ? "Deselect All Pending" 
+                  : "Select All Pending"
+                }
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Timeframe Quick-Filter Pills */}
@@ -5037,45 +5454,62 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         {/* Transactions Table/List */}
         <div className="overflow-hidden space-y-4">
           {/* Batch Action Bar */}
-          {selectedPendingCount > 0 && (
+          {selectedTxIds.size > 0 && (
             <div className="bg-slate-900 text-white rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-xl border border-slate-800 animate-slide-in">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-black text-xs animate-bounce shadow">
-                  {selectedPendingCount}
+                  {selectedTxIds.size}
                 </div>
                 <div>
-                  <h4 className="text-xs font-black uppercase tracking-widest text-slate-300">Batch Processing Mode</h4>
+                  <h4 className="text-xs font-black uppercase tracking-widest text-slate-300">Selected Transactions</h4>
                   <p className="text-[11px] text-slate-450 font-medium">
-                    Selected <strong className="text-indigo-400 font-bold">{selectedPendingCount} pending</strong> transaction(s) for fast approval/rejection.
+                    Selected <strong className="text-indigo-400 font-bold">{selectedTxIds.size}</strong> transaction(s) for bulk processing or consecutive printing.
                   </p>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
+                {selectedPendingCount > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isProcessingBatch !== null}
+                      onClick={() => handleBatchTxAction('APPROVED')}
+                      className={cn(
+                        "px-3.5 py-2 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer shadow-sm transition-all focus:outline-none flex items-center gap-1.5",
+                        isProcessingBatch === 'APPROVED' ? "bg-emerald-400 cursor-not-allowed" : "bg-emerald-500 hover:bg-emerald-600"
+                      )}
+                    >
+                      {isProcessingBatch === 'APPROVED' ? <Loader2 className="animate-spin" size={12} /> : null}
+                      Approve Selected ({selectedPendingCount})
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isProcessingBatch !== null}
+                      onClick={() => handleBatchTxAction('REJECTED')}
+                      className={cn(
+                        "px-3.5 py-2 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer shadow-sm transition-all focus:outline-none flex items-center gap-1.5",
+                        isProcessingBatch === 'REJECTED' ? "bg-rose-400 cursor-not-allowed" : "bg-rose-500 hover:bg-rose-600"
+                      )}
+                    >
+                      {isProcessingBatch === 'REJECTED' ? <Loader2 className="animate-spin" size={12} /> : null}
+                      Reject Selected ({selectedPendingCount})
+                    </button>
+                  </>
+                )}
+
                 <button
                   type="button"
-                  disabled={isProcessingBatch !== null}
-                  onClick={() => handleBatchTxAction('APPROVED')}
-                  className={cn(
-                    "px-3.5 py-2 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer shadow-sm transition-all focus:outline-none flex items-center gap-1.5",
-                    isProcessingBatch === 'APPROVED' ? "bg-emerald-400 cursor-not-allowed" : "bg-emerald-500 hover:bg-emerald-600"
-                  )}
+                  onClick={() => {
+                    const txs = filteredAllTransactions.filter(tx => selectedTxIds.has(tx.id));
+                    onTriggerBulkPrint?.(txs);
+                  }}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer shadow-sm transition-all focus:outline-none flex items-center gap-1.5"
                 >
-                  {isProcessingBatch === 'APPROVED' ? <Loader2 className="animate-spin" size={12} /> : null}
-                  Approve Selected ({selectedPendingCount})
+                  <Printer size={12} />
+                  Bulk Print ({selectedTxIds.size})
                 </button>
-                <button
-                  type="button"
-                  disabled={isProcessingBatch !== null}
-                  onClick={() => handleBatchTxAction('REJECTED')}
-                  className={cn(
-                    "px-3.5 py-2 text-white rounded-xl text-[10px] font-black uppercase tracking-wider cursor-pointer shadow-sm transition-all focus:outline-none flex items-center gap-1.5",
-                    isProcessingBatch === 'REJECTED' ? "bg-rose-400 cursor-not-allowed" : "bg-rose-500 hover:bg-rose-600"
-                  )}
-                >
-                  {isProcessingBatch === 'REJECTED' ? <Loader2 className="animate-spin" size={12} /> : null}
-                  Reject Selected ({selectedPendingCount})
-                </button>
+
                 <button
                   type="button"
                   onClick={() => setSelectedTxIds(new Set())}
@@ -5214,6 +5648,13 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                         className="flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-[9px] transition-all cursor-pointer"
                       >
                         <Info size={10} /> View Details
+                      </button>
+                      <button
+                        onClick={() => onTriggerPrint?.(tx)}
+                        className="flex items-center gap-1 px-2.5 py-1 bg-zinc-900 hover:bg-black text-white rounded-lg font-bold text-[9px] transition-all cursor-pointer"
+                        title="Print Thermal Receipt"
+                      >
+                        <Printer size={10} /> Print
                       </button>
                       {tx.transitionFile && (
                         <button
@@ -5577,6 +6018,286 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
         </div>
       )}
 
+      {adminActiveTab === 'BRAND_LOGO' && (
+        <section className="bg-white rounded-2xl sm:rounded-[2rem] border border-slate-200 p-4 sm:p-8 shadow-sm max-w-4xl text-left">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+            <div>
+              <h3 className="font-extrabold text-lg sm:text-xl text-slate-950">System & Website Brand Logo and setting</h3>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-1">Configure and customize your website brand header, login logo, and physical/PDF receipt imagery.</p>
+            </div>
+            {updateSuccess && (
+              <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-150 animate-pulse self-start sm:self-center">
+                SUCCESSFULLY SAVED
+              </span>
+            )}
+          </div>
+
+          <div className="p-4 sm:p-6 bg-slate-50 rounded-2xl sm:rounded-[1.5rem] border border-slate-150 space-y-6">
+            <p className="text-[11px] sm:text-xs text-slate-500 leading-normal">
+              Provide a custom image URL, choose a default preset, or upload an image file (PNG/JPG) to show as your website brand header, login logo, and in all print sheets and PDF statements.
+            </p>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* URL input */}
+              <div className="space-y-1.5 text-left">
+                <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Logo Image URL</span>
+                <input 
+                  type="text" 
+                  value={logoInput} 
+                  onChange={(e) => setLogoInput(e.target.value)}
+                  placeholder="e.g. https://example.com/logo.png"
+                  className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-xl px-3 py-2.5 w-full outline-none focus:border-indigo-505 focus:ring-0"
+                />
+              </div>
+
+              {/* Image File Upload */}
+              <div className="space-y-1.5 text-left">
+                <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Upload Custom Image File</span>
+                <div className="relative">
+                  <input 
+                    type="file" 
+                    accept="image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const res = event.target?.result as string;
+                          setLogoEditorSrc(res);
+                          setIsLogoEditorOpen(true);
+                        };
+                        reader.readAsDataURL(file);
+                      }
+                    }}
+                    className="hidden"
+                    id="brand-logo-file-upload"
+                  />
+                  <label 
+                    htmlFor="brand-logo-file-upload"
+                    className="text-xs font-extrabold text-indigo-700 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-150 px-3 py-3 rounded-xl block text-center cursor-pointer transition-all active:scale-98"
+                  >
+                    {logoInput && logoInput.startsWith('data:image/') ? 'Change Uploaded File' : 'Choose Local File...'}
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Logo Sizing Customizers */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4 border-t border-slate-200 pt-5">
+              <div className="space-y-1.5 text-left">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Navigation Logo Height</span>
+                  <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{logoNavHeightInput}px</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="16" 
+                  max="80" 
+                  step="2"
+                  value={logoNavHeightInput} 
+                  onChange={(e) => setLogoNavHeightInput(parseInt(e.target.value))}
+                  className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-slate-250 rounded-lg appearance-none"
+                />
+                <p className="text-[9px] text-slate-400 font-medium">Controls the height of the logo in the top sticky navigation menu. (Default: 32px)</p>
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Login/Landing Logo Height</span>
+                  <span className="text-[10px] font-mono font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{logoLoginHeightInput}px</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="32" 
+                  max="160" 
+                  step="4"
+                  value={logoLoginHeightInput} 
+                  onChange={(e) => setLogoLoginHeightInput(parseInt(e.target.value))}
+                  className="w-full accent-indigo-600 cursor-pointer h-1.5 bg-slate-250 rounded-lg appearance-none"
+                />
+                <p className="text-[9px] text-slate-400 font-medium">Controls the height of the logo on the login and signup splash screens. (Default: 64px)</p>
+              </div>
+            </div>
+
+            {/* Current Logo Preview */}
+            {logoInput && (
+              <div className="pt-3 border-t border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-2xl border border-slate-150 mt-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-14 h-14 rounded-xl border border-slate-200 overflow-hidden bg-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <img src={logoInput} alt="Custom Business Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <p className="text-xs font-black text-slate-800">Logo Active Preview</p>
+                    <p className="text-[10px] font-semibold text-slate-400 font-mono truncate">{logoInput.startsWith('data:') ? 'Custom Base64 Image Data' : logoInput}</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full md:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLogoEditorSrc(logoInput);
+                      setIsLogoEditorOpen(true);
+                    }}
+                    className="px-4 py-3 sm:py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer active:scale-98 font-sans"
+                  >
+                    <Crop size={14} /> Edit Logo Graphic
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLogoInput('')}
+                    className="px-4 py-3 sm:py-2.5 bg-rose-50 hover:bg-rose-100 border border-rose-150 text-rose-600 font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-xs cursor-pointer active:scale-98 text-center font-sans"
+                  >
+                    Clear Logo
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <LogoEditorModal 
+              isOpen={isLogoEditorOpen}
+              onClose={() => setIsLogoEditorOpen(false)}
+              imageSrc={logoEditorSrc}
+              onSave={(editedBase64) => {
+                setLogoInput(editedBase64);
+              }}
+            />
+          </div>
+
+          {/* Appearance Settings Section */}
+          <div className="mt-6 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-2xs space-y-5">
+            <h4 className="text-xs font-black uppercase text-slate-400 tracking-wider font-sans border-b border-slate-100 pb-3">Website Appearance Settings</h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Typography Section */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center">
+                    <Type size={14} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider block leading-none">Website Typography Font</span>
+                    <span className="text-[10px] text-slate-400 font-medium">Changes the global display and body font</span>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <select
+                    value={siteFontInput}
+                    onChange={(e) => setSiteFontInput(e.target.value)}
+                    className="text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 w-full outline-none focus:border-indigo-500 focus:ring-0 appearance-none cursor-pointer"
+                  >
+                    <option value="Inter">Inter (Default - Clean & Modern)</option>
+                    <option value="Plus Jakarta Sans">Plus Jakarta Sans (Premium Geometric SaaS)</option>
+                    <option value="Poppins">Poppins (Warm Friendly Sans-Serif)</option>
+                    <option value="Space Grotesk">Space Grotesk (Tech-forward Display)</option>
+                    <option value="Outfit">Outfit (Elegant Round Geometric)</option>
+                    <option value="Sora">Sora (Bold Modern Tech)</option>
+                    <option value="Playfair Display">Playfair Display (Sophisticated Classic Serif)</option>
+                    <option value="Cinzel">Cinzel (Luxury Classical Serif)</option>
+                    <option value="JetBrains Mono">JetBrains Mono (Technical Mono)</option>
+                    <option value="Fira Code">Fira Code (Clean Developer Code Mono)</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                    <ChevronDown size={14} />
+                  </div>
+                </div>
+
+                {/* Font Size Selector */}
+                <div className="space-y-1.5 text-left">
+                  <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Website Font Size Scale</span>
+                  <div className="relative">
+                    <select
+                      value={siteFontSizeInput}
+                      onChange={(e) => setSiteFontSizeInput(e.target.value)}
+                      className="text-xs font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 w-full outline-none focus:border-indigo-500 focus:ring-0 appearance-none cursor-pointer"
+                    >
+                      <option value="small">Small (92.5% scale for compact density)</option>
+                      <option value="normal">Normal (100% standard baseline)</option>
+                      <option value="medium">Medium (105% comfortable reading scale)</option>
+                      <option value="large">Large (110% enhanced accessibility scale)</option>
+                      <option value="xlarge">Extra Large (115% high-visibility scale)</option>
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
+                      <ChevronDown size={14} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Font Live Preview */}
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-center">
+                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1.5 font-sans">Font & Size Live Preview</p>
+                  <p 
+                    style={{ 
+                      fontFamily: `"${siteFontInput}", sans-serif`,
+                      fontSize: siteFontSizeInput === 'small' ? '12px' : siteFontSizeInput === 'normal' ? '14px' : siteFontSizeInput === 'medium' ? '15.5px' : siteFontSizeInput === 'large' ? '17px' : '18.5px'
+                    }} 
+                    className="font-bold text-slate-800 transition-all duration-200"
+                  >
+                    The quick brown fox jumps over the lazy dog. 123456
+                  </p>
+                </div>
+              </div>
+
+              {/* Color Customizer Section */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-indigo-50 text-indigo-600 rounded-lg flex items-center justify-center">
+                    <Palette size={14} />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider block leading-none">Brand Primary Color Preset</span>
+                    <span className="text-[10px] text-slate-400 font-medium">Changes buttons, active links, and accents</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'indigo', name: 'Indigo Slate', color: '#4f46e5', hoverColor: 'hover:border-indigo-500' },
+                    { id: 'emerald', name: 'Emerald Mint', color: '#059669', hoverColor: 'hover:border-emerald-500' },
+                    { id: 'blue', name: 'Ocean Blue', color: '#0284c7', hoverColor: 'hover:border-sky-500' },
+                    { id: 'rose', name: 'Sunset Ruby', color: '#e11d48', hoverColor: 'hover:border-rose-500' },
+                    { id: 'purple', name: 'Royal Purple', color: '#9333ea', hoverColor: 'hover:border-purple-500' },
+                    { id: 'teal', name: 'Classic Teal', color: '#0d9488', hoverColor: 'hover:border-teal-500' },
+                    { id: 'slate', name: 'Charcoal Slate', color: '#475569', hoverColor: 'hover:border-slate-500' },
+                  ].map((preset) => {
+                    const isSelected = primaryColorInput === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setPrimaryColorInput(preset.id)}
+                        className={cn(
+                          "flex items-center gap-2 px-3 py-2 rounded-xl border text-left transition-all duration-200 cursor-pointer text-xs font-bold active:scale-97",
+                          isSelected 
+                            ? "bg-slate-900 border-slate-950 text-white shadow-xs" 
+                            : `bg-slate-50 border-slate-200 text-slate-700 ${preset.hoverColor}`
+                        )}
+                      >
+                        <span 
+                          className="w-3 h-3 rounded-full shrink-0 shadow-xs" 
+                          style={{ backgroundColor: preset.color }}
+                        />
+                        <span className="truncate">{preset.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <button 
+              onClick={handleUpdateRates}
+              disabled={isUpdatingRates}
+              className="w-full py-4 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-2xl font-extrabold text-sm transition-all shadow-md active:scale-95 cursor-pointer font-sans"
+            >
+              {isUpdatingRates ? 'Saving Brand Settings...' : 'Save Brand Logo & Appearance Settings'}
+            </button>
+          </div>
+        </section>
+      )}
+
       {adminActiveTab === 'SYSTEM_CONTROL' && (
         <div className="space-y-6">
           {/* Sub tabs navigation */}
@@ -5690,148 +6411,6 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
                           onChange={(e) => setInvoiceDisclaimerInput(e.target.value)}
                           placeholder="e.g. Thank you for your business. For feedback, reach us at support@walletpro.com. Please keep this statement for reference."
                           className="text-xs font-medium text-slate-700 bg-transparent outline-none focus:ring-0 w-full resize-none mt-1"
-                        />
-                      </div>
-
-                      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-150 space-y-3">
-                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block">System & Website Brand Logo</label>
-                        <p className="text-[11px] text-slate-500 leading-normal">
-                          Provide a custom image URL, choose a default preset, or upload an image file (PNG/JPG) to show as your website brand header, login logo, and in all print sheets and PDF statements.
-                        </p>
-                        
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                          {/* URL input */}
-                          <div className="space-y-1">
-                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Logo Image URL</span>
-                            <input 
-                              type="text" 
-                              value={logoInput} 
-                              onChange={(e) => setLogoInput(e.target.value)}
-                              placeholder="e.g. https://example.com/logo.png"
-                              className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-xl px-3 py-2 w-full outline-none focus:border-indigo-500 focus:ring-0"
-                            />
-                          </div>
-
-                          {/* Image File Upload */}
-                          <div className="space-y-1">
-                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Upload Custom Image File</span>
-                            <div className="relative">
-                              <input 
-                                type="file" 
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onload = (event) => {
-                                      const res = event.target?.result as string;
-                                      setLogoEditorSrc(res);
-                                      setIsLogoEditorOpen(true);
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                                className="hidden"
-                                id="logo-file-upload"
-                              />
-                              <label 
-                                htmlFor="logo-file-upload"
-                                className="text-xs font-extrabold text-indigo-700 bg-indigo-50/50 hover:bg-indigo-100/70 border border-indigo-150 px-3 py-2.5 rounded-xl block text-center cursor-pointer transition-all active:scale-98"
-                              >
-                                {logoInput && logoInput.startsWith('data:image/') ? 'Change Uploaded File' : 'Choose Local File...'}
-                              </label>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Preset Logos */}
-                        <div className="space-y-1.5 pt-1.5">
-                          <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Or Use Brand Presets</span>
-                          <div className="flex flex-wrap gap-2">
-                            {[
-                              { name: 'WalletPro Emerald', url: 'https://images.unsplash.com/photo-1598153346810-860daa814c4b?w=128&auto=format&fit=crop&q=60' },
-                              { name: 'Global Remit Blue', url: 'https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=128&auto=format&fit=crop&q=60' },
-                              { name: 'Apex Gold Coins', url: 'https://images.unsplash.com/photo-1622630998477-20aa696ecb05?w=128&auto=format&fit=crop&q=60' },
-                              { name: 'Clear Slate Circle', url: 'https://images.unsplash.com/photo-1557683316-973673baf926?w=128&auto=format&fit=crop&q=60' }
-                            ].map((preset) => (
-                              <button
-                                key={preset.name}
-                                type="button"
-                                onClick={() => setLogoInput(preset.url)}
-                                className={cn(
-                                  "px-2.5 py-1.5 bg-white border rounded-xl text-[10px] font-bold text-slate-600 flex items-center gap-1.5 transition-all hover:bg-slate-50 cursor-pointer",
-                                  logoInput === preset.url ? "border-indigo-600 text-indigo-600 bg-indigo-50/20" : "border-slate-200"
-                                )}
-                              >
-                                <img src={preset.url} alt={preset.name} className="w-4 h-4 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
-                                <span>{preset.name}</span>
-                              </button>
-                            ))}
-                            {logoInput && (
-                              <button
-                                type="button"
-                                onClick={() => setLogoInput('')}
-                                className="px-2.5 py-1.5 bg-rose-50 border border-rose-100 hover:bg-rose-100 hover:border-rose-200 rounded-xl text-[10px] font-black text-rose-600 transition-all cursor-pointer"
-                              >
-                                Clear Logo
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Logo Navigation Height Slider */}
-                        <div className="space-y-2 pt-3 border-t border-slate-150/60 mt-3 text-left">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Navigation Logo Height</span>
-                            <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">{logoNavHeightInput}px</span>
-                          </div>
-                          <p className="text-[10px] text-slate-400 leading-normal">Adjust how large or small the logo appears specifically in the top navigation bar menu.</p>
-                          <div className="flex items-center gap-3">
-                            <span className="text-[9px] font-mono font-bold text-slate-400">16px</span>
-                            <input
-                              type="range"
-                              min="16"
-                              max="80"
-                              value={logoNavHeightInput}
-                              onChange={(e) => setLogoNavHeightInput(parseInt(e.target.value))}
-                              className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none"
-                            />
-                            <span className="text-[9px] font-mono font-bold text-slate-400">80px</span>
-                          </div>
-                        </div>
-
-                        {/* Current Logo Preview */}
-                        {logoInput && (
-                          <div className="pt-2 border-t border-slate-150/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-150 mt-2">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-xl border border-slate-200 overflow-hidden bg-white flex items-center justify-center shrink-0 shadow-2xs">
-                                <img src={logoInput} alt="Custom Business Logo" className="max-w-full max-h-full object-contain" referrerPolicy="no-referrer" />
-                              </div>
-                              <div className="min-w-0 flex-1 text-left">
-                                <p className="text-[10px] font-extrabold text-slate-700">Logo Active Preview</p>
-                                <p className="text-[9px] font-semibold text-slate-400 font-mono truncate">{logoInput.startsWith('data:') ? 'Custom Base64 Image Data' : logoInput}</p>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setLogoEditorSrc(logoInput);
-                                setIsLogoEditorOpen(true);
-                              }}
-                              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-98 shrink-0"
-                            >
-                              <Crop size={12} /> Edit Logo Graphic
-                            </button>
-                          </div>
-                        )}
-
-                        <LogoEditorModal 
-                          isOpen={isLogoEditorOpen}
-                          onClose={() => setIsLogoEditorOpen(false)}
-                          imageSrc={logoEditorSrc}
-                          onSave={(editedBase64) => {
-                            setLogoInput(editedBase64);
-                          }}
                         />
                       </div>
                     </div>
@@ -7213,10 +7792,24 @@ function AdminDashboard({ profile, isOffline = false }: { profile: UserProfile, 
    );
 }
 
-function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profile: UserProfile, isOffline?: boolean, onTriggerPrint?: (tx: Transaction) => void, key?: string }) {
+function AgentDashboard({ 
+  profile, 
+  isOffline = false, 
+  onTriggerPrint, 
+  onTriggerBulkPrint,
+  onOpenProfile 
+}: { 
+  profile: UserProfile, 
+  isOffline?: boolean, 
+  onTriggerPrint?: (tx: Transaction) => void, 
+  onTriggerBulkPrint?: (txs: Transaction[]) => void,
+  onOpenProfile?: () => void, 
+  key?: string 
+}) {
   const [agentActiveTab, setAgentActiveTab] = useState<'OVERVIEW' | 'TRANSACTION_HISTORY' | 'CUSTOMER_MANAGEMENT' | 'RECEIVER_MANAGEMENT' | 'SYSTEM_RATES' | 'DEPOSIT' | 'WITHDRAWAL' | 'FEEDBACK' | 'COMMISSIONS' | 'LIVE_CURRENCY'>('OVERVIEW');
   const [agentMobileSidebarOpen, setAgentMobileSidebarOpen] = useState(false);
   const [showForm, setShowForm] = useState<'DEPOSIT' | 'WITHDRAWAL' | null>(null);
+  const [isLiveUpdate, setIsLiveUpdate] = useState(true);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const { settings: ctxSettings, setSettings } = useSettings();
   const settings = ctxSettings || { usdToBdt: 120, eurToBdt: 130, commissionPercent: 2, agentCommission: 1.5 };
@@ -8885,39 +9478,92 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
     setRatesChanged(true);
   };
 
-  useEffect(() => {
-    if (isOffline) {
-      const loadLocalData = () => {
-        const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('sandbox_transactions') || '[]');
-        const localSettings: SystemSettings = JSON.parse(localStorage.getItem('sandbox_settings') || '{"usdToBdt": 120.5, "eurToBdt": 131.2, "commissionPercent": 2.5, "agentCommission": 1.5}');
-        const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
-        const localReceivers: Receiver[] = JSON.parse(localStorage.getItem('sandbox_receivers') || '[]');
-        setTransactions(localTransactions.filter(t => t.agentId === profile.uid));
-        
+  const loadLocalAgentData = () => {
+    const localTransactions: Transaction[] = JSON.parse(localStorage.getItem('sandbox_transactions') || '[]');
+    const localSettings: SystemSettings = JSON.parse(localStorage.getItem('sandbox_settings') || '{"usdToBdt": 120.5, "eurToBdt": 131.2, "commissionPercent": 2.5, "agentCommission": 1.5}');
+    const localUsers: UserProfile[] = JSON.parse(localStorage.getItem('sandbox_users') || '[]');
+    const localReceivers: Receiver[] = JSON.parse(localStorage.getItem('sandbox_receivers') || '[]');
+    setTransactions(localTransactions.filter(t => t.agentId === profile.uid));
+    
+    setSettings(prev => {
+      if (!hasFetchedSettingsRef.current) {
+        hasFetchedSettingsRef.current = true;
+        prevSettingsRef.current = localSettings;
+        return localSettings;
+      }
+      if (prev && (prev.usdToBdt !== localSettings.usdToBdt || prev.eurToBdt !== localSettings.eurToBdt || prev.commissionPercent !== localSettings.commissionPercent || prev.agentCommission !== localSettings.agentCommission)) {
+        triggerRateChangeAlert(prev, localSettings);
+        prevSettingsRef.current = localSettings;
+      }
+      return localSettings;
+    });
+
+    setMyCustomers(localUsers.filter(u => u.role === 'CUSTOMER' && u.agentId === profile.uid));
+    setAgentReceivers(localReceivers);
+  };
+
+  const loadAgentStaticDataOnline = async () => {
+    try {
+      const qTx = query(collection(db, 'transactions'), where('agentId', '==', profile.uid), orderBy('timestamp', 'desc'));
+      const qCust = query(collection(db, 'users'), where('role', '==', 'CUSTOMER'), where('agentId', '==', profile.uid));
+      const qRecs = query(collection(db, 'receivers'));
+
+      const [sTx, sSet, sCust, sRecs] = await Promise.all([
+        getDocs(qTx),
+        getDoc(doc(db, 'settings', 'global')),
+        getDocs(qCust),
+        getDocs(qRecs)
+      ]);
+
+      setTransactions(sTx.docs.map(d => ({ ...d.data(), id: d.id } as Transaction)));
+      
+      if (sSet.exists()) {
+        const nextSettings = sSet.data() as SystemSettings;
         setSettings(prev => {
           if (!hasFetchedSettingsRef.current) {
             hasFetchedSettingsRef.current = true;
-            prevSettingsRef.current = localSettings;
-            return localSettings;
+            prevSettingsRef.current = nextSettings;
+            return nextSettings;
           }
-          if (prev && (prev.usdToBdt !== localSettings.usdToBdt || prev.eurToBdt !== localSettings.eurToBdt || prev.commissionPercent !== localSettings.commissionPercent || prev.agentCommission !== localSettings.agentCommission)) {
-            triggerRateChangeAlert(prev, localSettings);
-            prevSettingsRef.current = localSettings;
+          if (prev && (prev.usdToBdt !== nextSettings.usdToBdt || prev.eurToBdt !== nextSettings.eurToBdt || prev.commissionPercent !== nextSettings.commissionPercent || prev.agentCommission !== nextSettings.agentCommission)) {
+            triggerRateChangeAlert(prev, nextSettings);
+            prevSettingsRef.current = nextSettings;
           }
-          return localSettings;
+          return nextSettings;
         });
+      }
 
-        setMyCustomers(localUsers.filter(u => u.role === 'CUSTOMER' && u.agentId === profile.uid));
-        setAgentReceivers(localReceivers);
-      };
+      setMyCustomers(sCust.docs.map(d => d.data() as UserProfile));
+      setAgentReceivers(sRecs.docs.map(d => ({ ...d.data(), id: d.id } as Receiver)));
+    } catch (err) {
+      console.error("Error loading agent static data online:", err);
+    }
+  };
+
+  const handleAgentManualRefresh = () => {
+    if (isOffline) {
+      loadLocalAgentData();
+    } else {
+      loadAgentStaticDataOnline();
+    }
+  };
+
+  useEffect(() => {
+    if (isOffline) {
+      loadLocalAgentData();
+      if (!isLiveUpdate) return;
       
-      loadLocalData();
-      const interval = setInterval(loadLocalData, 1000);
-      window.addEventListener('storage', loadLocalData);
+      const interval = setInterval(loadLocalAgentData, 1000);
+      window.addEventListener('storage', loadLocalAgentData);
       return () => {
         clearInterval(interval);
-        window.removeEventListener('storage', loadLocalData);
+        window.removeEventListener('storage', loadLocalAgentData);
       };
+    }
+
+    if (!isLiveUpdate) {
+      loadAgentStaticDataOnline();
+      return;
     }
 
     const qTx = query(collection(db, 'transactions'), where('agentId', '==', profile.uid), orderBy('timestamp', 'desc'));
@@ -8956,7 +9602,7 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
     });
 
     return () => { u1(); u2(); u3(); u4(); };
-  }, [profile.uid, isOffline]);
+  }, [profile.uid, isOffline, isLiveUpdate]);
 
   const handleOpenForm = (type: 'DEPOSIT' | 'WITHDRAWAL') => {
     setShowForm(type);
@@ -10460,86 +11106,109 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
   return (
     <div className="flex flex-col md:flex-row gap-8 min-h-screen">
       {/* Sidebar Navigation */}
-      <aside className="w-72 bg-white border border-slate-200 rounded-[2rem] p-6 md:block hidden shrink-0 self-start shadow-sm sticky top-6">
-        <div className="flex items-center gap-3 mb-8 px-2">
-          {settings?.logoUrl ? (
-            <div className="w-10 h-10 bg-white border border-slate-150 rounded-2xl flex items-center justify-center p-1.5 shadow-xs overflow-hidden shrink-0">
-              <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-md" referrerPolicy="no-referrer" />
-            </div>
-          ) : (
+      <aside className="w-72 bg-white border border-slate-200 rounded-[2rem] p-6 md:flex hidden flex-col shrink-0 self-start shadow-sm sticky top-6 h-[calc(100vh-5rem)] min-h-[660px] justify-between">
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center gap-3 px-2">
             <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-extrabold shadow-md shrink-0">
               <ShieldCheck size={20} />
             </div>
-          )}
-          <div>
-            <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase leading-none font-sans">Agent Portal</h2>
-            <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md mt-1 inline-block font-sans">FINANCIAL PARTNER</span>
+            <div>
+              <h2 className="text-sm font-black text-slate-800 tracking-tight uppercase leading-none font-sans">Agent Portal</h2>
+              <span className="text-[9px] font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md mt-1 inline-block font-sans">FINANCIAL PARTNER</span>
+            </div>
           </div>
+
+          <nav className="space-y-1.5">
+            {[
+              { id: 'OVERVIEW' as const, label: 'Overview', icon: LayoutDashboard },
+              { id: 'DEPOSIT' as const, label: 'Deposit Request', icon: PlusCircle },
+              { id: 'WITHDRAWAL' as const, label: 'Withdrawal Request', icon: ArrowUpRight },
+              { id: 'TRANSACTION_HISTORY' as const, label: 'My History', icon: History },
+              { id: 'COMMISSIONS' as const, label: 'My Commissions', icon: Percent },
+              { id: 'CUSTOMER_MANAGEMENT' as const, label: 'My Customers', icon: Users, count: myCustomers.length },
+              { id: 'RECEIVER_MANAGEMENT' as const, label: 'My Receivers', icon: Contact, count: filteredAgentReceivers.length },
+              { id: 'SYSTEM_RATES' as const, label: 'System Rates', icon: Settings },
+              { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
+              { id: 'FEEDBACK' as const, label: 'Feedback & Bug Report', icon: MessageSquare },
+            ].map((t) => {
+              const Icon = t.icon;
+              const isActive = agentActiveTab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    if (t.id === 'SYSTEM_RATES') {
+                      setRatesChanged(false);
+                    }
+                    if (t.id === 'DEPOSIT' || t.id === 'WITHDRAWAL') {
+                      setAgentActiveTab(t.id);
+                      handleOpenForm(t.id);
+                    } else {
+                      setAgentActiveTab(t.id);
+                      setShowForm(null);
+                    }
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between px-4.5 py-3.5 rounded-2xl text-xs font-bold transition-all group cursor-pointer border-l-4",
+                    isActive
+                      ? "bg-indigo-600 text-white shadow-sm border-indigo-700 font-extrabold"
+                      : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon size={16} className={cn(isActive ? "text-white" : "text-slate-400 group-hover:text-slate-600")} />
+                    <span>{t.label}</span>
+                    {t.id === 'SYSTEM_RATES' && ratesChanged && (
+                      <span className="w-2.5 h-2.5 bg-orange-500 rounded-full animate-bounce shrink-0 shadow-sm" title="Rates updated!" />
+                    )}
+                  </div>
+                  {t.count !== undefined && t.count > 0 && (
+                    <span className={cn(
+                      "px-2 py-0.5 rounded-lg text-[10px] font-extrabold font-mono",
+                      isActive ? "bg-white text-indigo-600" : "bg-indigo-100 text-indigo-700"
+                    )}>
+                      {t.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        <nav className="space-y-1.5">
-          {[
-            { id: 'OVERVIEW' as const, label: 'Overview', icon: LayoutDashboard },
-            { id: 'DEPOSIT' as const, label: 'Deposit Request', icon: PlusCircle },
-            { id: 'WITHDRAWAL' as const, label: 'Withdrawal Request', icon: ArrowUpRight },
-            { id: 'TRANSACTION_HISTORY' as const, label: 'My History', icon: History },
-            { id: 'COMMISSIONS' as const, label: 'My Commissions', icon: Percent },
-            { id: 'CUSTOMER_MANAGEMENT' as const, label: 'My Customers', icon: Users, count: myCustomers.length },
-            { id: 'RECEIVER_MANAGEMENT' as const, label: 'My Receivers', icon: Contact, count: filteredAgentReceivers.length },
-            { id: 'SYSTEM_RATES' as const, label: 'System Rates', icon: Settings },
-            { id: 'LIVE_CURRENCY' as const, label: 'Live FX Rates', icon: Globe },
-            { id: 'FEEDBACK' as const, label: 'Feedback & Bug Report', icon: MessageSquare },
-          ].map((t) => {
-            const Icon = t.icon;
-            const isActive = agentActiveTab === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => {
-                  if (t.id === 'SYSTEM_RATES') {
-                    setRatesChanged(false);
-                  }
-                  if (t.id === 'DEPOSIT' || t.id === 'WITHDRAWAL') {
-                    setAgentActiveTab(t.id);
-                    handleOpenForm(t.id);
-                  } else {
-                    setAgentActiveTab(t.id);
-                    setShowForm(null);
-                  }
-                }}
-                className={cn(
-                  "w-full flex items-center justify-between px-4.5 py-3.5 rounded-2xl text-xs font-bold transition-all group cursor-pointer border-l-4",
-                  isActive
-                    ? "bg-indigo-600 text-white shadow-sm border-indigo-700 font-extrabold"
-                    : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50/80"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <Icon size={16} className={cn(isActive ? "text-white" : "text-slate-400 group-hover:text-slate-600")} />
-                  <span>{t.label}</span>
-                  {t.id === 'SYSTEM_RATES' && ratesChanged && (
-                    <span className="w-2.5 h-2.5 bg-orange-500 rounded-full animate-bounce shrink-0 shadow-sm" title="Rates updated!" />
-                  )}
-                </div>
-                {t.count !== undefined && t.count > 0 && (
-                  <span className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-extrabold font-mono",
-                    isActive ? "bg-white text-indigo-600" : "bg-indigo-100 text-indigo-700"
-                  )}>
-                    {t.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="pt-8 border-t border-slate-100 mt-8">
-          <div className="bg-slate-50 border border-slate-150 p-4 rounded-2xl">
-            <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">Signed In As</span>
-            <p className="text-xs font-black text-slate-800 truncate">{profile.name}</p>
-            <p className="text-[10px] text-slate-500 font-bold font-mono">{profile.phone}</p>
-          </div>
+        <div className="pt-6 border-t border-slate-100 mt-auto">
+          <button 
+            onClick={onOpenProfile}
+            className="w-full flex items-center gap-3 text-left p-2.5 hover:bg-slate-50 rounded-2xl transition-all focus:outline-none cursor-pointer border border-transparent hover:border-slate-150"
+            title="Edit Profile Settings"
+          >
+            {profile.photoURL ? (
+              <div className="flex items-center justify-center shrink-0">
+                <img 
+                  src={profile.photoURL} 
+                  alt={profile.name || "Profile"} 
+                  className="w-10 h-10 rounded-full object-cover border-2 border-indigo-600 shadow-sm" 
+                  referrerPolicy="no-referrer" 
+                />
+              </div>
+            ) : (
+              <div className="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-extrabold text-sm border-2 border-indigo-200 uppercase shrink-0 font-sans shadow-xs">
+                {profile.name ? profile.name.slice(0, 2) : 'WP'}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-xs text-slate-800 truncate block max-w-[110px]">
+                  {profile.name || 'Agent'}
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full text-[8px] font-black uppercase tracking-wider shrink-0 bg-indigo-100 text-indigo-800 border border-indigo-200 font-sans">
+                  Agent
+                </span>
+              </div>
+              <p className="text-[9px] text-slate-500 font-medium font-mono truncate">{profile.phone || 'No phone'}</p>
+              <span className="text-[9px] text-indigo-600 font-bold hover:underline block mt-0.5 font-sans">Edit Profile</span>
+            </div>
+          </button>
         </div>
       </aside>
 
@@ -10564,15 +11233,9 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
               <div>
                 <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-2.5">
-                    {settings?.logoUrl ? (
-                      <div className="w-8 h-8 bg-white border border-slate-150 rounded-xl flex items-center justify-center p-1 shadow-xs overflow-hidden shrink-0">
-                        <img src={settings.logoUrl} alt="Logo" className="max-w-full max-h-full object-contain rounded-sm" referrerPolicy="no-referrer" />
-                      </div>
-                    ) : (
-                      <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm shrink-0">
-                        <ShieldCheck size={16} />
-                      </div>
-                    )}
+                    <div className="w-8 h-8 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-extrabold shadow-sm shrink-0">
+                      <ShieldCheck size={16} />
+                    </div>
                     <span className="font-extrabold text-sm text-slate-850 uppercase tracking-tight font-sans">Agent Portal</span>
                   </div>
                   <button onClick={() => setAgentMobileSidebarOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400">
@@ -10640,37 +11303,6 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
               </div>
 
               <div className="space-y-4">
-                {/* Quick Actions Header & Button Row */}
-                <div className="space-y-2">
-                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block text-left">
-                    Quick Actions
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => {
-                        setAgentActiveTab('DEPOSIT');
-                        handleOpenForm('DEPOSIT');
-                        setAgentMobileSidebarOpen(false);
-                      }}
-                      className="flex items-center justify-center gap-1.5 py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-xl text-xs font-bold transition-all border border-indigo-100 active:scale-95 cursor-pointer shadow-xs"
-                    >
-                      <PlusCircle size={14} className="shrink-0" />
-                      <span>Deposit</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setAgentActiveTab('WITHDRAWAL');
-                        handleOpenForm('WITHDRAWAL');
-                        setAgentMobileSidebarOpen(false);
-                      }}
-                      className="flex items-center justify-center gap-1.5 py-3 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-bold transition-all border border-rose-100 active:scale-95 cursor-pointer shadow-xs"
-                    >
-                      <ArrowUpRight size={14} className="shrink-0" />
-                      <span>Withdraw</span>
-                    </button>
-                  </div>
-                </div>
-
                 {/* Active Agent Info */}
                 <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-left">
                   <span className="text-[8px] font-black text-slate-400 uppercase tracking-wider block mb-1">Active Agent</span>
@@ -10692,10 +11324,13 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
             className="p-2 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
           >
             <List size={16} />
-            <span className="text-[10px] font-black uppercase tracking-wider">NAV MENU</span>
+            <span className="text-[10px] font-black uppercase tracking-wider font-sans">NAV MENU</span>
           </button>
           
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            
+
+            <div className="flex items-center gap-3">
             <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block bg-indigo-50/70 px-2.5 py-1.5 rounded-lg whitespace-nowrap">
               {agentActiveTab === 'OVERVIEW' ? 'Overview' :
                agentActiveTab === 'DEPOSIT' ? 'Deposit' :
@@ -10766,9 +11401,10 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
                   </div>
                 </>
               )}
-            </div>
           </div>
         </div>
+      </div>
+    </div>
 
         {/* Global Alert Center Top Bar Greeting */}
         <div className="hidden md:flex items-center justify-between bg-white p-5 px-6 rounded-3xl border border-slate-200 gap-4 flex-wrap">
@@ -10776,7 +11412,10 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
            <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest font-mono">Agent Account Segment</span>
            <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">Agent Partner: {profile.name}</h1>
          </div>
-         <div className="relative">
+         <div className="relative flex items-center gap-4.5">
+           
+
+           <div className="relative">
            <button
              onClick={() => setShowBellDropdown(!showBellDropdown)}
              className="flex items-center gap-1.5 text-slate-400 hover:text-slate-700 transition-all px-3 py-1.5 bg-slate-100 hover:bg-slate-200/80 rounded-xl cursor-pointer select-none focus:outline-none"
@@ -10866,6 +11505,8 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
            )}
          </div>
        </div>
+
+      </div>
 
         {/* Dynamic Inner Tab Content */}
         {agentActiveTab === 'OVERVIEW' && (
@@ -11276,19 +11917,33 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
                   </label>
 
                   {selectedTxIds.length > 0 && (
-                    <button
-                      type="button"
-                      disabled={isExportingZip}
-                      onClick={handleBulkExportZip}
-                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-black rounded-xl shadow-sm text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      {isExportingZip ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Download size={12} />
-                      )}
-                      <span>Export ({selectedTxIds.length}) as ZIP</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isExportingZip}
+                        onClick={handleBulkExportZip}
+                        className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-black rounded-xl shadow-sm text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        {isExportingZip ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Download size={12} />
+                        )}
+                        <span>Export ({selectedTxIds.length}) as ZIP</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const txs = filteredTransactions.filter(tx => selectedTxIds.includes(tx.id || ''));
+                          onTriggerBulkPrint?.(txs);
+                        }}
+                        className="px-3 py-1.5 bg-zinc-900 hover:bg-black text-white font-black rounded-xl shadow-sm text-[10px] uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Printer size={12} />
+                        <span>Bulk Print ({selectedTxIds.length})</span>
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -11308,20 +11963,23 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
               </div>
 
               <div className="divide-y divide-slate-50 max-h-[500px] overflow-y-auto pr-1">
-                {filteredTransactions.map(tx => {
-                   const isCompleted = tx.status === 'APPROVED' || tx.status === 'REJECTED';
-                   const isChecked = selectedTxIds.includes(tx.id || '');
-                   return (
-                     <motion.div 
-                       key={tx.id} 
-                       initial={{ opacity: 0, y: 10 }}
-                       animate={{ opacity: 1, y: 0 }}
-                       transition={{ duration: 0.25, ease: "easeOut" }}
-                       className={cn(
-                         "p-6 flex items-center justify-between hover:bg-slate-50 transition-colors duration-500 ease-in-out",
-                         isChecked && "bg-indigo-50/20"
-                       )}
-                     >
+                <AnimatePresence mode="popLayout">
+                  {filteredTransactions.map(tx => {
+                     const isCompleted = tx.status === 'APPROVED' || tx.status === 'REJECTED';
+                     const isChecked = selectedTxIds.includes(tx.id || '');
+                     return (
+                       <motion.div 
+                         key={tx.id} 
+                         layout
+                         initial={{ opacity: 0, y: 12 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         exit={{ opacity: 0, scale: 0.95, y: -12 }}
+                         transition={{ duration: 0.2, ease: "easeInOut" }}
+                         className={cn(
+                           "p-6 flex items-center justify-between hover:bg-slate-50 transition-colors duration-500 ease-in-out",
+                           isChecked && "bg-indigo-50/20"
+                         )}
+                       >
                         <div className="flex items-center gap-3 md:gap-4">
                           {/* Selection Checkbox */}
                           <div className="w-5 flex items-center justify-center">
@@ -11377,6 +12035,14 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
                               <span>{tx.status}</span>
                             </motion.span>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => onTriggerPrint?.(tx)}
+                            title="Print Thermal Receipt"
+                            className="p-2 bg-zinc-900 hover:bg-black text-white rounded-xl transition-all cursor-pointer flex items-center justify-center shadow-sm"
+                          >
+                            <Printer size={12} />
+                          </button>
                           {isCompleted && (
                             <button
                               type="button"
@@ -11391,7 +12057,8 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
                      </motion.div>
                    );
                 })}
-                {filteredTransactions.length === 0 && (
+                </AnimatePresence>
+                 {filteredTransactions.length === 0 && (
                   <p className="text-center text-slate-400 py-20 text-sm">
                     {agentSearchQuery.trim() ? "No matching transaction records found" : "No transaction records yet"}
                   </p>
@@ -14093,7 +14760,7 @@ function AgentDashboard({ profile, isOffline = false, onTriggerPrint }: { profil
               </motion.div>
             </div>
           )}
-       </ AnimatePresence>
+        </AnimatePresence>
 
         {/* Custom Receiver Deletion Confirmation Modal Overlay */}
         <AnimatePresence>

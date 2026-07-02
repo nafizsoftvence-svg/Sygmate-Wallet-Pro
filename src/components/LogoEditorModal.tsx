@@ -295,10 +295,34 @@ export default function LogoEditorModal({ isOpen, onClose, imageSrc, onSave }: L
     customWidth, customHeight, rotation, flipH, flipV
   ]);
 
+  const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
+
   const handleDrag = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (e.buttons !== 1) return; // Only drag with left click
     setOffsetX(prev => prev + e.movementX);
     setOffsetY(prev => prev + e.movementY);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 1 && lastTouchRef.current) {
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - lastTouchRef.current.x;
+      const deltaY = touch.clientY - lastTouchRef.current.y;
+      setOffsetX(prev => prev + deltaX);
+      setOffsetY(prev => prev + deltaY);
+      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
+    }
+  };
+
+  const handleTouchEnd = () => {
+    lastTouchRef.current = null;
   };
 
   const handleSave = () => {
@@ -317,7 +341,7 @@ export default function LogoEditorModal({ isOpen, onClose, imageSrc, onSave }: L
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 font-sans select-none">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 md:p-6 font-sans select-none">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-slate-900/65 backdrop-blur-sm transition-opacity"
@@ -325,28 +349,28 @@ export default function LogoEditorModal({ isOpen, onClose, imageSrc, onSave }: L
       />
 
       {/* Editor Modal Window */}
-      <div className="relative bg-white rounded-3xl shadow-2xl border border-slate-150 max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden z-10 transition-all">
+      <div className="relative bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-150 max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] flex flex-col overflow-hidden z-10 transition-all">
         {/* Header */}
-        <div className="px-6 py-4.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2.5 bg-indigo-50 text-indigo-650 rounded-2xl">
-              <Crop size={20} />
+        <div className="px-4 py-3 sm:px-6 sm:py-4.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="p-2 bg-indigo-50 text-indigo-650 rounded-xl sm:rounded-2xl shrink-0">
+              <Crop size={18} className="sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-900 uppercase tracking-tight">Interactive Logo Designer</h3>
-              <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider">Crop, remove background, invert colors & set brand layout</p>
+            <div className="min-w-0">
+              <h3 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-tight truncate">Interactive Logo Designer</h3>
+              <p className="text-[9px] sm:text-[10px] text-slate-500 font-semibold uppercase tracking-wider truncate">Crop, remove background & adjust imagery</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-2 hover:bg-slate-150 text-slate-400 hover:text-slate-700 rounded-full transition-colors cursor-pointer"
+            className="p-1.5 hover:bg-slate-150 text-slate-400 hover:text-slate-700 rounded-full transition-colors cursor-pointer shrink-0"
           >
-            <X size={18} />
+            <X size={16} />
           </button>
         </div>
 
         {/* Workspace Splitted Layout */}
-        <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-12 gap-6 bg-slate-50/20">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-6 bg-slate-50/20">
           
           {/* LEFT: Live Preview Canvas (Col 7) */}
           <div className="md:col-span-7 flex flex-col items-center justify-center bg-slate-100/70 rounded-2xl border border-slate-200/60 p-4 relative min-h-[250px] md:min-h-[380px]">
@@ -382,8 +406,11 @@ export default function LogoEditorModal({ isOpen, onClose, imageSrc, onSave }: L
                 <canvas 
                   ref={canvasRef}
                   onMouseMove={handleDrag}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
                   className="cursor-move max-w-full rounded border border-slate-200 shadow-sm"
-                  title="Drag mouse to re-position logo inside bounding area"
+                  title="Drag mouse or swipe to re-position logo inside bounding area"
                 />
               </div>
             )}
@@ -410,7 +437,7 @@ export default function LogoEditorModal({ isOpen, onClose, imageSrc, onSave }: L
           </div>
 
           {/* RIGHT: Controls (Col 5) */}
-          <div className="md:col-span-5 space-y-4 text-left overflow-y-auto max-h-[460px] pr-1">
+          <div className="md:col-span-5 space-y-4 text-left md:overflow-y-auto md:max-h-[460px] pr-0 md:pr-1">
             
             {/* Tab Section: Layout & Aspect Ratio */}
             <div className="bg-white rounded-2xl border border-slate-150 p-4 space-y-3.5 shadow-2xs">

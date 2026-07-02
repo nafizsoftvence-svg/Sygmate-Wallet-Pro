@@ -35,27 +35,163 @@ interface CurrencyInfo {
   country: string;
   flag: string;
   defaultRate: number; // Approximate rate to BDT
+  region: 'remittance' | 'asia_pacific' | 'middle_east' | 'europe' | 'americas' | 'africa';
 }
 
 // Support a rich list of standard currencies traded in Bangladesh / remittance corridors
 const CURRENCIES_LIST: CurrencyInfo[] = [
-  { code: 'USD', name: 'US Dollar', country: 'United States', flag: '🇺🇸', defaultRate: 119.85 },
-  { code: 'EUR', name: 'Euro', country: 'European Union', flag: '🇪🇺', defaultRate: 128.40 },
-  { code: 'GBP', name: 'British Pound', country: 'United Kingdom', flag: '🇬🇧', defaultRate: 151.75 },
-  { code: 'SAR', name: 'Saudi Riyal', country: 'Saudi Arabia', flag: '🇸🇦', defaultRate: 31.95 },
-  { code: 'AED', name: 'UAE Dirham', country: 'United Arab Emirates', flag: '🇦🇪', defaultRate: 32.63 },
-  { code: 'MYR', name: 'Malaysian Ringgit', country: 'Malaysia', flag: '🇲🇾', defaultRate: 25.40 },
-  { code: 'SGD', name: 'Singapore Dollar', country: 'Singapore', flag: '🇸🇬', defaultRate: 88.50 },
-  { code: 'INR', name: 'Indian Rupee', country: 'India', flag: '🇮🇳', defaultRate: 1.43 },
-  { code: 'KWD', name: 'Kuwaiti Dinar', country: 'Kuwait', flag: '🇰🇼', defaultRate: 390.20 },
-  { code: 'QAR', name: 'Qatari Riyal', country: 'Qatar', flag: '🇶🇦', defaultRate: 32.90 },
-  { code: 'OMR', name: 'Omani Rial', country: 'Oman', flag: '🇴🇲', defaultRate: 311.30 },
-  { code: 'CAD', name: 'Canadian Dollar', country: 'Canada', flag: '🇨🇦', defaultRate: 87.20 },
-  { code: 'AUD', name: 'Australian Dollar', country: 'Australia', flag: '🇦🇺', defaultRate: 79.40 },
-  { code: 'KWD', name: 'Kuwaiti Dinar', country: 'Kuwait', flag: '🇰🇼', defaultRate: 390.20 },
-  { code: 'JPY', name: 'Japanese Yen', country: 'Japan', flag: '🇯🇵', defaultRate: 0.75 },
-  { code: 'CNY', name: 'Chinese Yuan', country: 'China', flag: '🇨🇳', defaultRate: 16.50 },
-  { code: 'KRW', name: 'South Korean Won', country: 'South Korea', flag: '🇰🇷', defaultRate: 0.086 }
+  // Remittance / Major Corridors
+  { code: 'USD', name: 'US Dollar', country: 'United States', flag: '🇺🇸', defaultRate: 119.85, region: 'remittance' },
+  { code: 'EUR', name: 'Euro', country: 'European Union', flag: '🇪🇺', defaultRate: 128.40, region: 'remittance' },
+  { code: 'GBP', name: 'British Pound', country: 'United Kingdom', flag: '🇬🇧', defaultRate: 151.75, region: 'remittance' },
+  { code: 'SAR', name: 'Saudi Riyal', country: 'Saudi Arabia', flag: '🇸🇦', defaultRate: 31.95, region: 'remittance' },
+  { code: 'AED', name: 'UAE Dirham', country: 'United Arab Emirates', flag: '🇦🇪', defaultRate: 32.63, region: 'remittance' },
+  { code: 'MYR', name: 'Malaysian Ringgit', country: 'Malaysia', flag: '🇲🇾', defaultRate: 25.40, region: 'remittance' },
+  { code: 'SGD', name: 'Singapore Dollar', country: 'Singapore', flag: '🇸🇬', defaultRate: 88.50, region: 'remittance' },
+  { code: 'INR', name: 'Indian Rupee', country: 'India', flag: '🇮🇳', defaultRate: 1.43, region: 'remittance' },
+  { code: 'KWD', name: 'Kuwaiti Dinar', country: 'Kuwait', flag: '🇰🇼', defaultRate: 390.20, region: 'remittance' },
+  { code: 'QAR', name: 'Qatari Riyal', country: 'Qatar', flag: '🇶🇦', defaultRate: 32.90, region: 'remittance' },
+  { code: 'OMR', name: 'Omani Rial', country: 'Oman', flag: '🇴🇲', defaultRate: 311.30, region: 'remittance' },
+  { code: 'BHD', name: 'Bahraini Dinar', country: 'Bahrain', flag: '🇧🇭', defaultRate: 317.90, region: 'remittance' },
+
+  // Asia & Pacific
+  { code: 'JPY', name: 'Japanese Yen', country: 'Japan', flag: '🇯🇵', defaultRate: 0.75, region: 'asia_pacific' },
+  { code: 'CNY', name: 'Chinese Yuan', country: 'China', flag: '🇨🇳', defaultRate: 16.50, region: 'asia_pacific' },
+  { code: 'KRW', name: 'South Korean Won', country: 'South Korea', flag: '🇰🇷', defaultRate: 0.086, region: 'asia_pacific' },
+  { code: 'AUD', name: 'Australian Dollar', country: 'Australia', flag: '🇦🇺', defaultRate: 79.40, region: 'asia_pacific' },
+  { code: 'NZD', name: 'New Zealand Dollar', country: 'New Zealand', flag: '🇳🇿', defaultRate: 73.10, region: 'asia_pacific' },
+  { code: 'HKD', name: 'Hong Kong Dollar', country: 'Hong Kong', flag: '🇭🇰', defaultRate: 15.35, region: 'asia_pacific' },
+  { code: 'THB', name: 'Thai Baht', country: 'Thailand', flag: '🇹🇭', defaultRate: 3.25, region: 'asia_pacific' },
+  { code: 'IDR', name: 'Indonesian Rupiah', country: 'Indonesia', flag: '🇮🇩', defaultRate: 0.0073, region: 'asia_pacific' },
+  { code: 'PHP', name: 'Philippine Peso', country: 'Philippines', flag: '🇵🇭', defaultRate: 2.05, region: 'asia_pacific' },
+  { code: 'VND', name: 'Vietnamese Dong', country: 'Vietnam', flag: '🇻🇳', defaultRate: 0.0047, region: 'asia_pacific' },
+  { code: 'PKR', name: 'Pakistani Rupee', country: 'Pakistan', flag: '🇵🇰', defaultRate: 0.43, region: 'asia_pacific' },
+  { code: 'LKR', name: 'Sri Lankan Rupee', country: 'Sri Lanka', flag: '🇱🇰', defaultRate: 0.39, region: 'asia_pacific' },
+  { code: 'NPR', name: 'Nepalese Rupee', country: 'Nepal', flag: '🇳🇵', defaultRate: 0.90, region: 'asia_pacific' },
+  { code: 'MVR', name: 'Maldivian Rufiyaa', country: 'Maldives', flag: '🇲🇻', defaultRate: 7.75, region: 'asia_pacific' },
+  { code: 'AFN', name: 'Afghan Afghani', country: 'Afghanistan', flag: '🇦🇫', defaultRate: 1.68, region: 'asia_pacific' },
+  { code: 'KHR', name: 'Cambodian Riel', country: 'Cambodia', flag: '🇰🇭', defaultRate: 0.029, region: 'asia_pacific' },
+  { code: 'LAK', name: 'Lao Kip', country: 'Laos', flag: '🇱🇦', defaultRate: 0.0055, region: 'asia_pacific' },
+  { code: 'MMK', name: 'Myanmar Kyat', country: 'Myanmar', flag: '🇲🇲', defaultRate: 0.057, region: 'asia_pacific' },
+  { code: 'BND', name: 'Brunei Dollar', country: 'Brunei', flag: '🇧🇳', defaultRate: 88.50, region: 'asia_pacific' },
+  { code: 'TWD', name: 'New Taiwan Dollar', country: 'Taiwan', flag: '🇹🇼', defaultRate: 3.68, region: 'asia_pacific' },
+  { code: 'MNT', name: 'Mongolian Tughrik', country: 'Mongolia', flag: '🇲🇳', defaultRate: 0.035, region: 'asia_pacific' },
+  { code: 'FJD', name: 'Fijian Dollar', country: 'Fiji', flag: '🇫🇯', defaultRate: 53.50, region: 'asia_pacific' },
+  { code: 'PGK', name: 'Papua New Guinean Kina', country: 'Papua New Guinea', flag: '🇵🇬', defaultRate: 30.50, region: 'asia_pacific' },
+  { code: 'SBD', name: 'Solomon Islands Dollar', country: 'Solomon Islands', flag: '🇸🇧', defaultRate: 14.10, region: 'asia_pacific' },
+  { code: 'VUV', name: 'Vanuatu Vatu', country: 'Vanuatu', flag: '🇻🇺', defaultRate: 1.00, region: 'asia_pacific' },
+  { code: 'TOP', name: 'Tongan Paʻanga', country: 'Tonga', flag: '🇹🇴', defaultRate: 50.50, region: 'asia_pacific' },
+  { code: 'WST', name: 'Samoan Tālā', country: 'Samoa', flag: '🇼🇸', defaultRate: 43.50, region: 'asia_pacific' },
+  { code: 'KZT', name: 'Kazakhstani Tenge', country: 'Kazakhstan', flag: '🇰🇿', defaultRate: 0.25, region: 'asia_pacific' },
+  { code: 'KGS', name: 'Kyrgyzstani Som', country: 'Kyrgyzstan', flag: '🇰🇬', defaultRate: 1.37, region: 'asia_pacific' },
+  { code: 'TJS', name: 'Tajikistani Somoni', country: 'Tajikistan', flag: '🇹🇯', defaultRate: 11.00, region: 'asia_pacific' },
+  { code: 'TMT', name: 'Turkmenistani Manat', country: 'Turkmenistan', flag: '🇹🇲', defaultRate: 34.20, region: 'asia_pacific' },
+  { code: 'UZS', name: 'Uzbekistani Som', country: 'Uzbekistan', flag: '🇺🇿', defaultRate: 0.0094, region: 'asia_pacific' },
+
+  // Middle East
+  { code: 'JOD', name: 'Jordanian Dinar', country: 'Jordan', flag: '🇯🇴', defaultRate: 169.00, region: 'middle_east' },
+  { code: 'ILS', name: 'New Israeli Shekel', country: 'Israel', flag: '🇮🇱', defaultRate: 32.10, region: 'middle_east' },
+  { code: 'LBP', name: 'Lebanese Pound', country: 'Lebanon', flag: '🇱🇧', defaultRate: 0.0013, region: 'middle_east' },
+  { code: 'SYP', name: 'Syrian Pound', country: 'Syria', flag: '🇸🇾', defaultRate: 0.0092, region: 'middle_east' },
+  { code: 'YER', name: 'Yemeni Rial', country: 'Yemen', flag: '🇾🇪', defaultRate: 0.48, region: 'middle_east' },
+  { code: 'IQD', name: 'Iraqi Dinar', country: 'Iraq', flag: '🇮🇶', defaultRate: 0.091, region: 'middle_east' },
+  { code: 'IRR', name: 'Iranian Rial', country: 'Iran', flag: '🇮🇷', defaultRate: 0.0028, region: 'middle_east' },
+
+  // Europe
+  { code: 'CHF', name: 'Swiss Franc', country: 'Switzerland', flag: '🇨🇭', defaultRate: 134.10, region: 'europe' },
+  { code: 'SEK', name: 'Swedish Krona', country: 'Sweden', flag: '🇸🇪', defaultRate: 11.30, region: 'europe' },
+  { code: 'NOK', name: 'Norwegian Krone', country: 'Norway', flag: '🇳🇴', defaultRate: 11.20, region: 'europe' },
+  { code: 'DKK', name: 'Danish Krone', country: 'Denmark', flag: '🇩🇰', defaultRate: 17.20, region: 'europe' },
+  { code: 'ISK', name: 'Icelandic Króna', country: 'Iceland', flag: '🇮🇸', defaultRate: 0.86, region: 'europe' },
+  { code: 'RUB', name: 'Russian Ruble', country: 'Russia', flag: '🇷🇺', defaultRate: 1.35, region: 'europe' },
+  { code: 'PLN', name: 'Polish Złoty', country: 'Poland', flag: '🇵🇱', defaultRate: 29.80, region: 'europe' },
+  { code: 'CZK', name: 'Czech Koruna', country: 'Czechia', flag: '🇨🇿', defaultRate: 5.15, region: 'europe' },
+  { code: 'HUF', name: 'Hungarian Forint', country: 'Hungary', flag: '🇭🇺', defaultRate: 0.33, region: 'europe' },
+  { code: 'RON', name: 'Romanian Leu', country: 'Romania', flag: '🇷🇴', defaultRate: 25.80, region: 'europe' },
+  { code: 'BGN', name: 'Bulgarian Lev', country: 'Bulgaria', flag: '🇧🇬', defaultRate: 65.65, region: 'europe' },
+  { code: 'BYN', name: 'Belarusian Ruble', country: 'Belarus', flag: '🇧🇾', defaultRate: 36.60, region: 'europe' },
+  { code: 'UAH', name: 'Ukrainian Hryvnia', country: 'Ukraine', flag: '🇺🇦', defaultRate: 2.95, region: 'europe' },
+  { code: 'BAM', name: 'Bosnia Mark', country: 'Bosnia', flag: '🇧🇦', defaultRate: 65.65, region: 'europe' },
+  { code: 'ALL', name: 'Albanian Lek', country: 'Albania', flag: '🇦🇱', defaultRate: 1.28, region: 'europe' },
+  { code: 'RSD', name: 'Serbian Dinar', country: 'Serbia', flag: '🇷🇸', defaultRate: 1.10, region: 'europe' },
+  { code: 'MDL', name: 'Moldovan Leu', country: 'Moldova', flag: '🇲🇩', defaultRate: 6.75, region: 'europe' },
+  { code: 'MKD', name: 'Macedonian Denar', country: 'North Macedonia', flag: '🇲🇰', defaultRate: 2.08, region: 'europe' },
+  { code: 'GEL', name: 'Georgian Lari', country: 'Georgia', flag: '🇬🇪', defaultRate: 43.60, region: 'europe' },
+  { code: 'AMD', name: 'Armenian Dram', country: 'Armenia', flag: '🇦🇲', defaultRate: 0.31, region: 'europe' },
+  { code: 'AZN', name: 'Azerbaijani Manat', country: 'Azerbaijan', flag: '🇦🇿', defaultRate: 70.50, region: 'europe' },
+  { code: 'TRY', name: 'Turkish Lira', country: 'Turkey', flag: '🇹🇷', defaultRate: 3.65, region: 'europe' },
+
+  // Americas (North, Central, South & Caribbean)
+  { code: 'CAD', name: 'Canadian Dollar', country: 'Canada', flag: '🇨🇦', defaultRate: 87.20, region: 'americas' },
+  { code: 'MXN', name: 'Mexican Peso', country: 'Mexico', flag: '🇲🇽', defaultRate: 6.55, region: 'americas' },
+  { code: 'BRL', name: 'Brazilian Real', country: 'Brazil', flag: '🇧🇷', defaultRate: 21.80, region: 'americas' },
+  { code: 'ARS', name: 'Argentine Peso', country: 'Argentina', flag: '🇦🇷', defaultRate: 0.13, region: 'americas' },
+  { code: 'CLP', name: 'Chilean Peso', country: 'Chile', flag: '🇨🇱', defaultRate: 0.13, region: 'americas' },
+  { code: 'COP', name: 'Colombian Peso', country: 'Colombia', flag: '🇨🇴', defaultRate: 0.029, region: 'americas' },
+  { code: 'PEN', name: 'Peruvian Sol', country: 'Peru', flag: '🇵🇪', defaultRate: 31.80, region: 'americas' },
+  { code: 'UYU', name: 'Uruguayan Peso', country: 'Uruguay', flag: '🇺🇾', defaultRate: 3.05, region: 'americas' },
+  { code: 'BOB', name: 'Bolivian Boliviano', country: 'Bolivia', flag: '🇧🇴', defaultRate: 17.30, region: 'americas' },
+  { code: 'PYG', name: 'Paraguayan Guaraní', country: 'Paraguay', flag: '🇵🇾', defaultRate: 0.016, region: 'americas' },
+  { code: 'BSD', name: 'Bahamian Dollar', country: 'Bahamas', flag: '🇧🇸', defaultRate: 119.85, region: 'americas' },
+  { code: 'BBD', name: 'Barbadian Dollar', country: 'Barbados', flag: '🇧🇧', defaultRate: 59.90, region: 'americas' },
+  { code: 'BZD', name: 'Belize Dollar', country: 'Belize', flag: '🇧🇿', defaultRate: 59.50, region: 'americas' },
+  { code: 'CRC', name: 'Costa Rican Colón', country: 'Costa Rica', flag: '🇨🇷', defaultRate: 0.23, region: 'americas' },
+  { code: 'DOP', name: 'Dominican Peso', country: 'Dominican Republic', flag: '🇩🇴', defaultRate: 2.02, region: 'americas' },
+  { code: 'GTQ', name: 'Guat. Quetzal', country: 'Guatemala', flag: '🇬🇹', defaultRate: 15.40, region: 'americas' },
+  { code: 'HTG', name: 'Haitian Gourde', country: 'Haiti', flag: '🇭🇹', defaultRate: 0.90, region: 'americas' },
+  { code: 'HNL', name: 'Honduran Lempira', country: 'Honduras', flag: '🇭🇳', defaultRate: 4.85, region: 'americas' },
+  { code: 'JMD', name: 'Jamaican Dollar', country: 'Jamaica', flag: '🇯🇲', defaultRate: 0.77, region: 'americas' },
+  { code: 'NIO', name: 'Nicaraguan Córdoba', country: 'Nicaragua', flag: '🇳🇮', defaultRate: 3.25, region: 'americas' },
+  { code: 'PAB', name: 'Panamanian Balboa', country: 'Panama', flag: '🇵🇦', defaultRate: 119.85, region: 'americas' },
+  { code: 'TTD', name: 'Trinidad Dollar', country: 'Trinidad', flag: '🇹🇹', defaultRate: 17.60, region: 'americas' },
+  { code: 'ANG', name: 'Antillean Guilder', country: 'Curaçao', flag: '🇨🇼', defaultRate: 66.50, region: 'americas' },
+  { code: 'AWG', name: 'Aruban Florin', country: 'Aruba', flag: '🇦🇼', defaultRate: 66.50, region: 'americas' },
+  { code: 'XCD', name: 'East Caribbean Dollar', country: 'OECS', flag: '🇩🇲', defaultRate: 44.30, region: 'americas' },
+  { code: 'GYD', name: 'Guyanese Dollar', country: 'Guyana', flag: '🇬🇾', defaultRate: 0.57, region: 'americas' },
+  { code: 'SRD', name: 'Surinamese Dollar', country: 'Suriname', flag: '🇸🇷', defaultRate: 3.52, region: 'americas' },
+
+  // Africa
+  { code: 'ZAR', name: 'South African Rand', country: 'South Africa', flag: '🇿🇦', defaultRate: 6.60, region: 'africa' },
+  { code: 'EGP', name: 'Egyptian Pound', country: 'Egypt', flag: '🇪🇬', defaultRate: 2.50, region: 'africa' },
+  { code: 'DZD', name: 'Algerian Dinar', country: 'Algeria', flag: '🇩🇿', defaultRate: 0.89, region: 'africa' },
+  { code: 'MAD', name: 'Moroccan Dirham', country: 'Morocco', flag: '🇲🇦', defaultRate: 11.95, region: 'africa' },
+  { code: 'NGN', name: 'Nigerian Naira', country: 'Nigeria', flag: '🇳🇬', defaultRate: 0.081, region: 'africa' },
+  { code: 'KES', name: 'Kenyan Shilling', country: 'Kenya', flag: '🇰🇪', defaultRate: 0.92, region: 'africa' },
+  { code: 'GHS', name: 'Ghanaian Cedi', country: 'Ghana', flag: '🇬🇭', defaultRate: 8.20, region: 'africa' },
+  { code: 'TZS', name: 'Tanzanian Shilling', country: 'Tanzania', flag: '🇹🇿', defaultRate: 0.046, region: 'africa' },
+  { code: 'UGX', name: 'Ugandan Shilling', country: 'Uganda', flag: '🇺🇬', defaultRate: 0.032, region: 'africa' },
+  { code: 'ETB', name: 'Ethiopian Birr', country: 'Ethiopia', flag: '🇪🇹', defaultRate: 1.05, region: 'africa' },
+  { code: 'TND', name: 'Tunisian Dinar', country: 'Tunisia', flag: '🇹🇳', defaultRate: 38.35, region: 'africa' },
+  { code: 'AOA', name: 'Angolan Kwanza', country: 'Angola', flag: '🇦🇴', defaultRate: 0.14, region: 'africa' },
+  { code: 'BWP', name: 'Botswana Pula', country: 'Botswana', flag: '🇧🇼', defaultRate: 8.85, region: 'africa' },
+  { code: 'BIF', name: 'Burundian Franc', country: 'Burundi', flag: '🇧🇮', defaultRate: 0.042, region: 'africa' },
+  { code: 'CVE', name: 'Cape Verdean Escudo', country: 'Cape Verde', flag: '🇨🇻', defaultRate: 1.16, region: 'africa' },
+  { code: 'DJF', name: 'Djiboutian Franc', country: 'Djibouti', flag: '🇩🇯', defaultRate: 0.67, region: 'africa' },
+  { code: 'ERN', name: 'Eritrean Nakfa', country: 'Eritrea', flag: '🇪🇷', defaultRate: 7.95, region: 'africa' },
+  { code: 'GMD', name: 'Gambian Dalasi', country: 'Gambia', flag: '🇬🇲', defaultRate: 1.75, region: 'africa' },
+  { code: 'GNF', name: 'Guinean Franc', country: 'Guinea', flag: '🇬🇳', defaultRate: 0.014, region: 'africa' },
+  { code: 'LSL', name: 'Lesotho Loti', country: 'Lesotho', flag: '🇱🇸', defaultRate: 6.60, region: 'africa' },
+  { code: 'LRD', name: 'Liberian Dollar', country: 'Liberia', flag: '🇱🇷', defaultRate: 0.62, region: 'africa' },
+  { code: 'LYD', name: 'Libyan Dinar', country: 'Libya', flag: '🇱🇾', defaultRate: 24.80, region: 'africa' },
+  { code: 'MGA', name: 'Malagasy Ariary', country: 'Madagascar', flag: '🇲🇬', defaultRate: 0.026, region: 'africa' },
+  { code: 'MWK', name: 'Malawian Kwacha', country: 'Malawi', flag: '🇲🇼', defaultRate: 0.069, region: 'africa' },
+  { code: 'MRU', name: 'Mauritanian Ouguiya', country: 'Mauritania', flag: '🇲🇷', defaultRate: 3.02, region: 'africa' },
+  { code: 'MUR', name: 'Mauritian Rupee', country: 'Mauritius', flag: '🇲🇺', defaultRate: 2.60, region: 'africa' },
+  { code: 'MZN', name: 'Mozambican Metical', country: 'Mozambique', flag: '🇲🇿', defaultRate: 1.88, region: 'africa' },
+  { code: 'NAD', name: 'Namibian Dollar', country: 'Namibia', flag: '🇳🇦', defaultRate: 6.60, region: 'africa' },
+  { code: 'RWF', name: 'Rwandan Franc', country: 'Rwanda', flag: '🇷🇼', defaultRate: 0.092, region: 'africa' },
+  { code: 'STN', name: 'São Tomé Dobra', country: 'São Tomé & Príncipe', flag: '🇸🇹', defaultRate: 5.25, region: 'africa' },
+  { code: 'SCR', name: 'Seychellois Rupee', country: 'Seychelles', flag: '🇸🇨', defaultRate: 8.85, region: 'africa' },
+  { code: 'SLL', name: 'Sierra Leonean Leone', country: 'Sierra Leone', flag: '🇸🇱', defaultRate: 0.0053, region: 'africa' },
+  { code: 'SOS', name: 'Somali Shilling', country: 'Somalia', flag: '🇸🇴', defaultRate: 0.21, region: 'africa' },
+  { code: 'SSP', name: 'South Sudanese Pound', country: 'South Sudan', flag: '🇸🇸', defaultRate: 0.092, region: 'africa' },
+  { code: 'SDG', name: 'Sudanese Pound', country: 'Sudan', flag: '🇸🇩', defaultRate: 0.20, region: 'africa' },
+  { code: 'SZL', name: 'Swazi Lilangeni', country: 'Eswatini', flag: '🇸🇿', defaultRate: 6.60, region: 'africa' },
+  { code: 'ZMW', name: 'Zambian Kwacha', country: 'Zambia', flag: '🇿🇲', defaultRate: 4.60, region: 'africa' },
+  { code: 'ZWL', name: 'Zimbabwean Dollar', country: 'Zimbabwe', flag: '🇿🇼', defaultRate: 0.37, region: 'africa' },
+  { code: 'XAF', name: 'Central African Franc', country: 'CEMAC', flag: '🇨🇲', defaultRate: 0.19, region: 'africa' },
+  { code: 'XOF', name: 'West African CFA Franc', country: 'WAEMU', flag: '🇸🇳', defaultRate: 0.19, region: 'africa' },
+  { code: 'KMF', name: 'Comorian Franc', country: 'Comoros', flag: '🇰🇲', defaultRate: 0.26, region: 'africa' }
 ];
 
 // Clean duplicate keys (just in case)
@@ -67,6 +203,7 @@ export const LiveCurrencyRates: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCurrency, setSelectedCurrency] = useState<string>('USD');
+  const [selectedRegion, setSelectedRegion] = useState<string>('all');
   const [refreshCountdown, setRefreshCountdown] = useState<number>(60);
   
   // Converter States
@@ -204,14 +341,18 @@ export const LiveCurrencyRates: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Filter currencies based on search code or name
+  // Filter currencies based on search code, name, and selected region
   const filteredCurrencies = useMemo(() => {
-    return UNIQUE_CURRENCIES.filter(curr => 
-      curr.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      curr.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      curr.country.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [searchQuery]);
+    return UNIQUE_CURRENCIES.filter(curr => {
+      const matchesSearch = curr.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        curr.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        curr.country.toLowerCase().includes(searchQuery.toLowerCase());
+        
+      const matchesRegion = selectedRegion === 'all' || curr.region === selectedRegion;
+      
+      return matchesSearch && matchesRegion;
+    });
+  }, [searchQuery, selectedRegion]);
 
   // Selected history chart data
   const chartData = useMemo(() => {
@@ -385,6 +526,38 @@ export const LiveCurrencyRates: React.FC = () => {
                   className="w-full pl-9 pr-4 py-2.5 bg-slate-50 rounded-2xl border border-slate-200 focus:bg-white text-xs font-semibold outline-none focus:ring-2 focus:ring-indigo-600 transition-all text-slate-850"
                 />
               </div>
+            </div>
+
+            {/* Region/Category Tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1.5 no-scrollbar scroll-smooth">
+              {[
+                { id: 'all', label: 'All Countries', count: UNIQUE_CURRENCIES.length },
+                { id: 'remittance', label: 'Remittance', count: UNIQUE_CURRENCIES.filter(c => c.region === 'remittance').length },
+                { id: 'asia_pacific', label: 'Asia-Pacific', count: UNIQUE_CURRENCIES.filter(c => c.region === 'asia_pacific').length },
+                { id: 'middle_east', label: 'Middle East', count: UNIQUE_CURRENCIES.filter(c => c.region === 'middle_east').length },
+                { id: 'europe', label: 'Europe', count: UNIQUE_CURRENCIES.filter(c => c.region === 'europe').length },
+                { id: 'americas', label: 'Americas', count: UNIQUE_CURRENCIES.filter(c => c.region === 'americas').length },
+                { id: 'africa', label: 'Africa', count: UNIQUE_CURRENCIES.filter(c => c.region === 'africa').length }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setSelectedRegion(tab.id)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all shrink-0 cursor-pointer flex items-center gap-1.5 border",
+                    selectedRegion === tab.id
+                      ? "bg-indigo-600 border-indigo-600 text-white shadow-xs"
+                      : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-600 hover:text-slate-800"
+                  )}
+                >
+                  <span>{tab.label}</span>
+                  <span className={cn(
+                    "text-[9px] px-1.5 py-0.5 rounded-full font-black font-mono",
+                    selectedRegion === tab.id ? "bg-white/20 text-white" : "bg-slate-200 text-slate-500"
+                  )}>
+                    {tab.count}
+                  </span>
+                </button>
+              ))}
             </div>
 
             {/* Currencies Grid */}
